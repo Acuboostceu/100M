@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Account, AccountType, Category, Entity, ImportRule } from '@/lib/types'
+import { filterCategories } from '@/lib/entityUtils'
 import { useRouter } from 'next/navigation'
 
 const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
@@ -301,7 +302,7 @@ export default function SettingsClient({
         {/* Add rule form */}
         <div className="flex flex-wrap gap-2 mb-5">
           <select className="input w-32 shrink-0" value={ruleEntity}
-            onChange={e => setRuleEntity(e.target.value as Entity)}>
+            onChange={e => { setRuleEntity(e.target.value as Entity); setRuleCategoryId('') }}>
             {ENTITIES.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
           </select>
           <input
@@ -314,7 +315,7 @@ export default function SettingsClient({
           <select className="input w-48" value={ruleCategoryId}
             onChange={e => setRuleCategoryId(e.target.value)}>
             <option value="">카테고리 선택</option>
-            {categories.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+            {filterCategories(categories, ruleEntity).map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
           </select>
           <button onClick={handleAddRule} disabled={savingRule || !ruleKeyword.trim() || !ruleCategoryId}
             className="btn-primary px-4 shrink-0">
