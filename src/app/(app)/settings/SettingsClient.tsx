@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Account, AccountType, Category, ImportRule } from '@/lib/types'
+import { Account, AccountType, Category, Entity, ImportRule } from '@/lib/types'
 import { useRouter } from 'next/navigation'
 
 const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
@@ -18,9 +18,16 @@ const TYPE_ICONS: Record<AccountType, string> = {
   office_account: '🗂️',
 }
 
+const ENTITIES: { value: Entity; label: string; color: string }[] = [
+  { value: 'glow',     label: 'Glow',     color: 'bg-sky-100 text-sky-700' },
+  { value: 'acuboost', label: 'Acuboost', color: 'bg-violet-100 text-violet-700' },
+  { value: 'personal', label: 'Personal', color: 'bg-emerald-100 text-emerald-700' },
+]
+
 const EMPTY_FORM = {
   name: '',
   type: 'joint_account' as AccountType,
+  entity: 'glow' as Entity,
   balance: '',
   is_debt: false,
   credit_limit: '',
@@ -57,6 +64,7 @@ export default function SettingsClient({
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [editingEntityId, setEditingEntityId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const isCard = form.type === 'personal_card' || form.type === 'business_card'
 
@@ -68,6 +76,7 @@ export default function SettingsClient({
       user_id: user!.id,
       name: form.name.trim(),
       type: form.type,
+      entity: form.entity,
       balance: parseFloat(form.balance || '0'),
       is_debt: form.is_debt,
       credit_limit:    (isCard || form.is_debt) && form.credit_limit    ? parseFloat(form.credit_limit)    : null,
@@ -78,6 +87,13 @@ export default function SettingsClient({
     if (err) { setError(err.message); setSaving(false); return }
     setAccounts(a => [...a, data])
     setForm(EMPTY_FORM); setShowForm(false); setSaving(false)
+    router.refresh()
+  }
+
+  async function handleUpdateEntity(id: string, entity: Entity) {
+    await supabase.from('budget_accounts').update({ entity }).eq('id', id)
+    setAccounts(a => a.map(x => x.id === id ? { ...x, entity } : x))
+    setEditingEntityId(null)
     router.refresh()
   }
 
@@ -142,10 +158,32 @@ export default function SettingsClient({
                 <span className="text-xl">{TYPE_ICONS[a.type]}</span>
                 <div>
                   <p className="text-sm font-medium">{a.name}</p>
-                  <p className="text-xs text-gray-400">
-                    {ACCOUNT_TYPES.find(t => t.value === a.type)?.label}
-                    {a.is_debt && a.interest_rate ? ` · ${a.interest_rate}% APR` : ''}
-                  </p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    {editingEntityId === a.id ? (
+                      <div className="flex gap-1">
+                        {ENTITIES.map(e => (
+                          <button key={e.value} onClick={() => handleUpdateEntity(a.id, e.value)}
+                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${e.color}`}>
+                            {e.label}
+                          </button>
+                        ))}
+                        <button onClick={() => setEditingEntityId(null)} className="text-xs text-gray-400">✕</button>
+                      </div>
+                    ) : (
+                      <>
+                        <button onClick={() => setEditingEntityId(a.id)}
+                          className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            ENTITIES.find(e => e.value === a.entity)?.color ?? 'bg-gray-100 text-gray-500'
+                          }`}>
+                          {ENTITIES.find(e => e.value === a.entity)?.label ?? 'Unassigned'} ✏️
+                        </button>
+                        <span className="text-xs text-gray-400">
+                          {ACCOUNT_TYPES.find(t => t.value === a.type)?.label}
+                          {a.is_debt && a.interest_rate ? ` · ${a.interest_rate}% APR` : ''}
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -182,6 +220,13 @@ export default function SettingsClient({
               <select className="input" value={form.type}
                 onChange={e => setForm(f => ({ ...f, type: e.target.value as AccountType }))}>
                 {ACCOUNT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Entity</label>
+              <select className="input" value={form.entity}
+                onChange={e => setForm(f => ({ ...f, entity: e.target.value as Entity }))}>
+                {ENTITIES.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
               </select>
             </div>
             <div>

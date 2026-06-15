@@ -1,4 +1,5 @@
 export type AccountType = 'personal_card' | 'business_card' | 'joint_account' | 'office_account'
+export type Entity = 'glow' | 'acuboost' | 'personal'
 export type TxType = 'expense' | 'income' | 'transfer'
 export type TaxType = 'personal' | 'business' | 'none'
 
@@ -6,6 +7,7 @@ export interface Account {
   id: string
   name: string
   type: AccountType
+  entity: Entity
   balance: number
   credit_limit?: number
   is_debt: boolean
