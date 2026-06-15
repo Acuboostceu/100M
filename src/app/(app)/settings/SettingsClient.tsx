@@ -109,6 +109,7 @@ export default function SettingsClient({
   const [rules, setRules] = useState(initialRules)
   const [ruleKeyword, setRuleKeyword] = useState('')
   const [ruleCategoryId, setRuleCategoryId] = useState('')
+  const [ruleEntity, setRuleEntity] = useState<Entity>('glow')
   const [savingRule, setSavingRule] = useState(false)
   const [deletingRuleId, setDeletingRuleId] = useState<string | null>(null)
 
@@ -117,11 +118,11 @@ export default function SettingsClient({
     setSavingRule(true)
     const { data, error: err } = await supabase
       .from('budget_import_rules')
-      .insert({ keyword: ruleKeyword.trim().toLowerCase(), category_id: ruleCategoryId })
+      .upsert({ keyword: ruleKeyword.trim().toLowerCase(), entity: ruleEntity, category_id: ruleCategoryId }, { onConflict: 'keyword,entity' })
       .select('*, category:budget_categories(*)')
       .single()
     if (!err && data) {
-      setRules(r => [...r, data])
+      setRules(r => [...r.filter((x: any) => !(x.keyword === data.keyword && x.entity === data.entity)), data])
       setRuleKeyword(''); setRuleCategoryId('')
     }
     setSavingRule(false)
@@ -281,10 +282,14 @@ export default function SettingsClient({
         </div>
 
         {/* Add rule form */}
-        <div className="flex gap-2 mb-4">
+        <div className="flex flex-wrap gap-2 mb-5">
+          <select className="input w-32 shrink-0" value={ruleEntity}
+            onChange={e => setRuleEntity(e.target.value as Entity)}>
+            {ENTITIES.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
+          </select>
           <input
-            className="input flex-1"
-            placeholder='키워드 (예: square, louie properties, ashp)'
+            className="input flex-1 min-w-[140px]"
+            placeholder='키워드 (예: square, louie properties)'
             value={ruleKeyword}
             onChange={e => setRuleKeyword(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleAddRule()}
@@ -304,23 +309,34 @@ export default function SettingsClient({
           <p className="text-sm text-gray-400 text-center py-4">규칙이 없습니다. 위에서 추가해 보세요.</p>
         )}
 
-        <div className="space-y-1">
-          {rules.map(r => (
-            <div key={r.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-              <div className="flex items-center gap-3">
-                <code className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600">{r.keyword}</code>
-                <span className="text-xs text-gray-400">→</span>
-                <span className="text-xs font-medium">
-                  {(r as any).category?.icon} {(r as any).category?.name}
-                </span>
+        {ENTITIES.map(ent => {
+          const entRules = rules.filter((r: any) => r.entity === ent.value)
+          if (entRules.length === 0) return null
+          return (
+            <div key={ent.value} className="mb-4">
+              <p className={`text-xs font-semibold mb-1.5 px-1 ${ent.color.replace('bg-', 'text-').replace('-100', '-700').split(' ')[1]}`}>
+                {ent.label}
+              </p>
+              <div className="space-y-0.5">
+                {entRules.map((r: any) => (
+                  <div key={r.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                    <div className="flex items-center gap-3">
+                      <code className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600">{r.keyword}</code>
+                      <span className="text-xs text-gray-400">→</span>
+                      <span className="text-xs font-medium">
+                        {r.category?.icon} {r.category?.name}
+                      </span>
+                    </div>
+                    <button onClick={() => handleDeleteRule(r.id)} disabled={deletingRuleId === r.id}
+                      className="text-gray-300 hover:text-red-400 transition-colors text-sm px-1">
+                      {deletingRuleId === r.id ? '…' : '✕'}
+                    </button>
+                  </div>
+                ))}
               </div>
-              <button onClick={() => handleDeleteRule(r.id)} disabled={deletingRuleId === r.id}
-                className="text-gray-300 hover:text-red-400 transition-colors text-sm px-1">
-                {deletingRuleId === r.id ? '…' : '✕'}
-              </button>
             </div>
-          ))}
-        </div>
+          )
+        })}
       </div>
     </div>
   )

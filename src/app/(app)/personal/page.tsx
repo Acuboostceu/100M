@@ -14,7 +14,7 @@ export default async function PersonalPage() {
   const [{ data: accounts }, { data: allCategories }, { data: rules }] = await Promise.all([
     supabase.from('budget_accounts').select('*').eq('entity', 'personal').order('created_at'),
     supabase.from('budget_categories').select('*').order('name'),
-    supabase.from('budget_import_rules').select('*, category:budget_categories(*)'),
+    supabase.from('budget_import_rules').select('*, category:budget_categories(*)').eq('entity', 'personal'),
   ])
 
   const accs = accounts ?? []

@@ -14,7 +14,7 @@ export default async function GlowPage() {
   const [{ data: accounts }, { data: allCategories }, { data: rules }] = await Promise.all([
     supabase.from('budget_accounts').select('*').eq('entity', 'glow').order('created_at'),
     supabase.from('budget_categories').select('*').order('name'),
-    supabase.from('budget_import_rules').select('*, category:budget_categories(*)'),
+    supabase.from('budget_import_rules').select('*, category:budget_categories(*)').eq('entity', 'glow'),
   ])
 
   const accs = accounts ?? []

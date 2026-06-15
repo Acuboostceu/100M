@@ -60,6 +60,7 @@ export interface MonthlyBudget {
 export interface ImportRule {
   id: string
   keyword: string
+  entity: Entity
   category_id: string
   created_at: string
   category?: Category

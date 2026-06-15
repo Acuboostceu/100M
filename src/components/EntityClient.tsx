@@ -98,9 +98,9 @@ export default function EntityClient({
   async function saveRule(keyword: string, category_id: string) {
     if (!keyword.trim() || !category_id) return
     const kw = keyword.toLowerCase().trim()
-    await sb.from('budget_import_rules').upsert({ keyword: kw, category_id }, { onConflict: 'keyword' })
+    await sb.from('budget_import_rules').upsert({ keyword: kw, entity, category_id }, { onConflict: 'keyword,entity' })
     setSavedRules(s => new Set(s).add(kw))
-    setRules(r => [...r.filter((x: any) => x.keyword !== kw), { keyword: kw, category_id }])
+    setRules(r => [...r.filter((x: any) => x.keyword !== kw), { keyword: kw, entity, category_id }])
     setEditingRule(null)
   }
 
@@ -177,9 +177,9 @@ export default function EntityClient({
   async function saveImportRule(keyword: string, category_id: string) {
     if (!category_id || !keyword.trim()) return
     const kw = keyword.toLowerCase().trim()
-    await sb.from('budget_import_rules').upsert({ keyword: kw, category_id }, { onConflict: 'keyword' })
+    await sb.from('budget_import_rules').upsert({ keyword: kw, entity, category_id }, { onConflict: 'keyword,entity' })
     setImportSavedRules(s => new Set(s).add(kw))
-    setRules(r => [...r.filter((x: any) => x.keyword !== kw), { keyword: kw, category_id }])
+    setRules(r => [...r.filter((x: any) => x.keyword !== kw), { keyword: kw, entity, category_id }])
     setImportEditingRule(null)
   }
 
