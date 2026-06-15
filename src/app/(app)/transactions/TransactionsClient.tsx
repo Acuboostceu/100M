@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { Account, Category, Transaction } from '@/lib/types'
 import AddTransactionModal from './AddTransactionModal'
 
@@ -8,7 +9,7 @@ function fmt(n: number) {
 }
 
 export default function TransactionsClient({
-  transactions, accounts, categories
+  transactions: initial, accounts, categories
 }: {
   transactions: Transaction[]
   accounts: Account[]
@@ -16,6 +17,8 @@ export default function TransactionsClient({
 }) {
   const [filter, setFilter] = useState({ account: '', tax_type: '', search: '' })
   const [showAdd, setShowAdd] = useState(false)
+  const [transactions, setTransactions] = useState(initial)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const filtered = transactions.filter(t => {
     if (filter.account && t.account_id !== filter.account) return false
@@ -23,6 +26,21 @@ export default function TransactionsClient({
     if (filter.search && !t.description.toLowerCase().includes(filter.search.toLowerCase())) return false
     return true
   })
+
+  async function updateCategory(id: string, category_id: string) {
+    const cat = categories.find(c => c.id === category_id)
+    const sb = createClient()
+    await sb.from('budget_transactions').update({
+      category_id: category_id || null,
+      tax_type: cat?.tax_type ?? 'none',
+      irs_category: cat?.irs_category ?? null,
+    }).eq('id', id)
+    setTransactions(ts => ts.map(t => t.id === id
+      ? { ...t, category_id, tax_type: cat?.tax_type ?? 'none', category: cat } as any
+      : t
+    ))
+    setEditingId(null)
+  }
 
   return (
     <div className="space-y-4">
@@ -39,19 +57,13 @@ export default function TransactionsClient({
           value={filter.search}
           onChange={e => setFilter(f => ({ ...f, search: e.target.value }))}
         />
-        <select
-          className="input w-auto"
-          value={filter.account}
-          onChange={e => setFilter(f => ({ ...f, account: e.target.value }))}
-        >
+        <select className="input w-auto" value={filter.account}
+          onChange={e => setFilter(f => ({ ...f, account: e.target.value }))}>
           <option value="">All accounts</option>
           {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
-        <select
-          className="input w-auto"
-          value={filter.tax_type}
-          onChange={e => setFilter(f => ({ ...f, tax_type: e.target.value }))}
-        >
+        <select className="input w-auto" value={filter.tax_type}
+          onChange={e => setFilter(f => ({ ...f, tax_type: e.target.value }))}>
           <option value="">All types</option>
           <option value="personal">Personal</option>
           <option value="business">Business</option>
@@ -66,13 +78,33 @@ export default function TransactionsClient({
         )}
         {filtered.map(t => (
           <div key={t.id} className="flex items-center justify-between py-3 gap-3">
-            <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
               <span className="text-xl shrink-0">{(t as any).category?.icon ?? '📌'}</span>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium truncate">{t.description}</p>
                 <p className="text-xs text-gray-400">
-                  {t.date} · {(t as any).account?.name} · {(t as any).category?.name ?? 'Uncategorized'}
+                  {t.date} · {(t as any).account?.name}
                 </p>
+                {/* Inline category editor */}
+                {editingId === t.id ? (
+                  <select
+                    autoFocus
+                    className="input text-xs py-0.5 mt-1 w-full max-w-[260px]"
+                    value={t.category_id ?? ''}
+                    onChange={e => updateCategory(t.id, e.target.value)}
+                    onBlur={() => setEditingId(null)}
+                  >
+                    <option value="">Uncategorized</option>
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+                  </select>
+                ) : (
+                  <button
+                    onClick={() => setEditingId(t.id)}
+                    className="text-xs text-gray-400 hover:text-brand-600 transition-colors mt-0.5 text-left"
+                  >
+                    {(t as any).category?.name ?? 'Uncategorized'} ✏️
+                  </button>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
