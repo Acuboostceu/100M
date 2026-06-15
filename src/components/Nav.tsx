@@ -3,11 +3,12 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const links = [
-  { href: '/',             label: 'Dashboard',  icon: '📊' },
-  { href: '/transactions', label: 'Transactions',icon: '📋' },
-  { href: '/debt',         label: 'Debt',        icon: '💳' },
-  { href: '/report',       label: 'Report',      icon: '📈' },
-  { href: '/import',       label: 'Import',      icon: '⬆️' },
+  { href: '/',             label: 'Dashboard',   icon: '📊' },
+  { href: '/transactions', label: 'Transactions', icon: '📋' },
+  { href: '/debt',         label: 'Debt',         icon: '💳' },
+  { href: '/report',       label: 'Report',       icon: '📈' },
+  { href: '/import',       label: 'Import',       icon: '⬆️' },
+  { href: '/settings',     label: 'Settings',     icon: '⚙️' },
 ]
 
 export default function Nav() {
