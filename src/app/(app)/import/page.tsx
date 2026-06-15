@@ -71,7 +71,7 @@ export default function ImportPage() {
             date: date ? new Date(date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
             description: desc,
             amount,
-            type: isIncome ? 'income' : 'expense',
+            type: (isIncome ? 'income' : 'expense') as 'income' | 'expense',
             selected: true,
             category_id: catObj?.id ?? '',
             tax_type,
