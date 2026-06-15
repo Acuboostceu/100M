@@ -54,3 +54,11 @@ export interface MonthlyBudget {
   month: string
   amount: number
 }
+
+export interface ImportRule {
+  id: string
+  keyword: string
+  category_id: string
+  created_at: string
+  category?: Category
+}

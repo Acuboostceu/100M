@@ -13,46 +13,61 @@ interface ParsedRow {
   tax_type: 'personal' | 'business' | 'none'
 }
 
-const CATEGORY_KEYWORDS: Record<string, { keywords: string[]; tax_type: 'personal'|'business'|'none'; irs_category?: string }> = {
-  'Groceries':        { keywords: ['costco','trader joe','whole foods','safeway','kroger','walmart','grocery','market'], tax_type: 'personal' },
-  'Dining out':       { keywords: ['restaurant','mcdonald','starbucks','chipotle','pizza','doordash','ubereats','grubhub','cafe','diner'], tax_type: 'personal' },
-  'Gas':              { keywords: ['chevron','shell','arco','exxon','gas station','76','mobil','bp'], tax_type: 'personal' },
-  'Travel':           { keywords: ['airline','united','delta','southwest','hotel','marriott','hilton','airbnb','expedia','booking.com'], tax_type: 'business' },
-  'Office supplies':  { keywords: ['amazon','staples','office depot','best buy','apple.com'], tax_type: 'business' },
-  'Software/SaaS':    { keywords: ['google','microsoft','adobe','dropbox','zoom','slack','notion','figma','github','vercel'], tax_type: 'business' },
-  'Medical':          { keywords: ['pharmacy','cvs','walgreens','hospital','clinic','dental','doctor'], tax_type: 'personal' },
-  'Utilities':        { keywords: ['electric','water','internet','comcast','att','verizon','t-mobile','pg&e','edison'], tax_type: 'personal' },
+function cleanDescription(raw: string): string {
+  // Extract merchant name from ACH format: "ORIG CO NAME:Square Inc ORIG ID:..."
+  const origMatch = raw.match(/ORIG CO NAME:([^O]+?)(?:\s+ORIG ID:|$)/i)
+  if (origMatch) return origMatch[1].trim()
+  // "Online Payment 1234 To Merchant Name 05/22" → "Merchant Name"
+  const toMatch = raw.match(/\bTo\s+(.+?)(?:\s+\d{2}\/\d{2})?$/i)
+  if (toMatch) return toMatch[1].trim()
+  return raw.trim()
 }
 
-function autoCategory(desc: string) {
-  const d = desc.toLowerCase()
-  for (const [cat, { keywords, tax_type }] of Object.entries(CATEGORY_KEYWORDS)) {
-    if (keywords.some(k => d.includes(k))) return { category: cat, tax_type }
+function getCol(row: Record<string, string>, ...keys: string[]): string {
+  for (const k of keys) {
+    const found = Object.keys(row).find(rk => rk.toLowerCase().trim() === k.toLowerCase())
+    if (found && row[found] !== undefined && row[found] !== '') return row[found]
   }
-  return { category: 'Other', tax_type: 'none' as const }
+  return ''
 }
 
 export default function ImportPage() {
   const [rows, setRows] = useState<ParsedRow[]>([])
   const [accounts, setAccounts] = useState<any[]>([])
   const [categories, setCategories] = useState<any[]>([])
+  const [rules, setRules] = useState<any[]>([])
   const [accountId, setAccountId] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  async function loadAccounts() {
+  async function loadData() {
     const sb = createClient()
-    const [{ data: accs }, { data: cats }] = await Promise.all([
+    const [{ data: accs }, { data: cats }, { data: rls }] = await Promise.all([
       sb.from('budget_accounts').select('*').order('type'),
       sb.from('budget_categories').select('*').order('name'),
+      sb.from('budget_import_rules').select('*, category:budget_categories(*)'),
     ])
     setAccounts(accs ?? [])
     setCategories(cats ?? [])
+    setRules(rls ?? [])
     if (accs?.length) setAccountId(accs[0].id)
   }
 
-  useState(() => { loadAccounts() })
+  useState(() => { loadData() })
+
+  function applyRules(desc: string, cats: any[], rls: any[]) {
+    const d = desc.toLowerCase()
+    for (const rule of rls) {
+      if (d.includes(rule.keyword.toLowerCase())) {
+        return {
+          category_id: rule.category_id,
+          tax_type: (rule.category?.tax_type ?? 'none') as 'personal' | 'business' | 'none',
+        }
+      }
+    }
+    return { category_id: '', tax_type: 'none' as const }
+  }
 
   function handleFile(file: File) {
     Papa.parse(file, {
@@ -60,22 +75,26 @@ export default function ImportPage() {
       skipEmptyLines: true,
       complete: ({ data }) => {
         const parsed: ParsedRow[] = (data as any[]).map(row => {
-          const desc = row['Description'] ?? row['Merchant'] ?? row['Name'] ?? Object.values(row)[1] ?? ''
-          const rawAmt = row['Amount'] ?? row['Debit'] ?? row['Credit'] ?? '0'
-          const amount = Math.abs(parseFloat(String(rawAmt).replace(/[,$]/g, '')))
-          const isIncome = parseFloat(String(rawAmt).replace(/[,$]/g, '')) > 0 && (row['Credit'] !== undefined ? true : false)
-          const date = row['Date'] ?? row['Transaction Date'] ?? row['Posted Date'] ?? ''
-          const { category, tax_type } = autoCategory(desc)
-          const catObj = categories.find(c => c.name === category)
-          return {
-            date: date ? new Date(date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-            description: desc,
-            amount,
-            type: (isIncome ? 'income' : 'expense') as 'income' | 'expense',
-            selected: true,
-            category_id: catObj?.id ?? '',
-            tax_type,
-          }
+          const rawDesc = getCol(row, 'description', 'merchant', 'name', 'memo') || String(Object.values(row)[1] ?? '')
+          const desc = cleanDescription(rawDesc)
+
+          const rawAmt = getCol(row, 'amount', 'debit', 'credit', 'transaction amount')
+          const numAmt = parseFloat(String(rawAmt).replace(/[,$]/g, ''))
+          const amount = Math.abs(numAmt)
+
+          // Negative amount = expense, positive = income (Chase/BofA convention)
+          const isIncome = numAmt > 0
+          const type: 'expense' | 'income' = isIncome ? 'income' : 'expense'
+
+          const rawDate = getCol(row, 'date', 'transaction date', 'posted date', 'posting date', 'trans date')
+          const parsedDate = rawDate ? new Date(rawDate) : null
+          const date = parsedDate && !isNaN(parsedDate.getTime())
+            ? parsedDate.toISOString().split('T')[0]
+            : new Date().toISOString().split('T')[0]
+
+          const { category_id, tax_type } = applyRules(desc, categories, rules)
+
+          return { date, description: desc, amount, type, selected: true, category_id, tax_type }
         }).filter(r => r.amount > 0)
         setRows(parsed)
       },
@@ -101,10 +120,7 @@ export default function ImportPage() {
         irs_category: categories.find(c => c.id === r.category_id)?.irs_category ?? null,
       }))
     )
-    if (!error) {
-      setSaved(selected.length)
-      setRows([])
-    }
+    if (!error) { setSaved(selected.length); setRows([]) }
     setSaving(false)
   }
 
@@ -113,7 +129,9 @@ export default function ImportPage() {
       <h1 className="text-xl font-semibold">Import statement</h1>
 
       <div className="card space-y-3">
-        <p className="text-sm text-gray-500">Upload a CSV bank/card statement. We'll auto-categorize and you review before saving.</p>
+        <p className="text-sm text-gray-500">
+          CSV 스테이트먼트를 업로드하세요. Settings에서 설정한 규칙이 자동 적용됩니다.
+        </p>
         <div>
           <label className="text-xs text-gray-500 mb-1 block">Account</label>
           <select className="input" value={accountId} onChange={e => setAccountId(e.target.value)}>
@@ -128,7 +146,7 @@ export default function ImportPage() {
         >
           <p className="text-3xl mb-2">⬆️</p>
           <p className="text-sm font-medium text-gray-600">Drop CSV here or click to browse</p>
-          <p className="text-xs text-gray-400 mt-1">Works with Chase, BofA, Amex, Citi, and most bank exports</p>
+          <p className="text-xs text-gray-400 mt-1">Chase, BofA, Amex, Citi 등 대부분 은행 CSV 지원</p>
           <input ref={fileRef} type="file" accept=".csv" className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
         </div>
@@ -136,17 +154,21 @@ export default function ImportPage() {
 
       {saved > 0 && (
         <div className="card bg-green-50 border-green-100">
-          <p className="text-sm text-green-700 font-medium">✅ {saved} transactions imported successfully!</p>
+          <p className="text-sm text-green-700 font-medium">✅ {saved}개 거래가 저장됐습니다!</p>
         </div>
       )}
 
       {rows.length > 0 && (
         <div className="card space-y-3">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold">{rows.filter(r => r.selected).length} of {rows.length} selected</p>
-            <button onClick={importSelected} disabled={saving} className="btn-primary">
-              {saving ? 'Importing…' : `Import ${rows.filter(r => r.selected).length}`}
-            </button>
+            <p className="text-sm font-semibold">{rows.filter(r => r.selected).length} / {rows.length} 선택됨</p>
+            <div className="flex gap-2">
+              <button onClick={() => setRows(rs => rs.map(r => ({ ...r, selected: true })))}
+                className="btn-secondary text-xs px-3 py-1.5">전체 선택</button>
+              <button onClick={importSelected} disabled={saving} className="btn-primary">
+                {saving ? 'Importing…' : `Import ${rows.filter(r => r.selected).length}개`}
+              </button>
+            </div>
           </div>
           <div className="divide-y divide-gray-50 max-h-[60vh] overflow-y-auto">
             {rows.map((r, i) => (
@@ -159,7 +181,7 @@ export default function ImportPage() {
                   <p className="text-xs text-gray-400">{r.date}</p>
                 </div>
                 <select
-                  className="input w-36 text-xs py-1"
+                  className="input w-40 text-xs py-1"
                   value={r.category_id}
                   onChange={e => {
                     const cat = categories.find(c => c.id === e.target.value)
@@ -169,7 +191,7 @@ export default function ImportPage() {
                   <option value="">Uncategorized</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
                 </select>
-                <span className={`text-xs font-medium shrink-0 ${r.type === 'income' ? 'text-green-600' : 'text-gray-700'}`}>
+                <span className={`text-xs font-medium shrink-0 w-20 text-right ${r.type === 'income' ? 'text-green-600' : 'text-gray-700'}`}>
                   {r.type === 'income' ? '+' : '-'}${r.amount.toFixed(2)}
                 </span>
               </div>
