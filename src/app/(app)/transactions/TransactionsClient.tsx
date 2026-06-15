@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Account, Category, Transaction } from '@/lib/types'
 import AddTransactionModal from './AddTransactionModal'
@@ -19,6 +19,22 @@ export default function TransactionsClient({
   const [showAdd, setShowAdd] = useState(false)
   const [transactions, setTransactions] = useState(initial)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [savedRules, setSavedRules] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    const sb = createClient()
+    sb.from('budget_import_rules').select('keyword').then(({ data }) => {
+      if (data) setSavedRules(new Set(data.map((r: any) => r.keyword)))
+    })
+  }, [])
+
+  async function saveAsRule(description: string, category_id: string) {
+    if (!category_id) return
+    const keyword = description.toLowerCase().trim()
+    const sb = createClient()
+    await sb.from('budget_import_rules').upsert({ keyword, category_id }, { onConflict: 'keyword' })
+    setSavedRules(s => new Set(s).add(keyword))
+  }
 
   const filtered = transactions.filter(t => {
     if (filter.account && t.account_id !== filter.account) return false
@@ -113,6 +129,18 @@ export default function TransactionsClient({
                   {t.irs_category ?? t.tax_type}
                 </span>
               )}
+              <button
+                onClick={() => saveAsRule(t.description, t.category_id)}
+                disabled={!t.category_id}
+                title="규칙으로 저장"
+                className={`text-base transition-colors ${
+                  savedRules.has(t.description.toLowerCase().trim())
+                    ? 'text-brand-500'
+                    : 'text-gray-300 hover:text-brand-400'
+                } disabled:opacity-30 disabled:cursor-not-allowed`}
+              >
+                🔖
+              </button>
               <p className={`text-sm font-semibold ${t.type === 'income' ? 'text-green-600' : 'text-gray-800'}`}>
                 {t.type === 'income' ? '+' : '-'}{fmt(Number(t.amount))}
               </p>
