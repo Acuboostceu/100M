@@ -40,6 +40,7 @@ export default function ImportPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(0)
   const [savedRules, setSavedRules] = useState<Set<string>>(new Set())
+  const [editingRule, setEditingRule] = useState<{ rowIndex: number; keyword: string } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   async function loadData() {
@@ -57,16 +58,17 @@ export default function ImportPage() {
 
   useState(() => { loadData() })
 
-  async function saveAsRule(desc: string, category_id: string) {
-    if (!category_id) return
-    const keyword = desc.toLowerCase().trim()
+  async function saveAsRule(keyword: string, category_id: string) {
+    if (!category_id || !keyword.trim()) return
+    const kw = keyword.toLowerCase().trim()
     const sb = createClient()
     const { error } = await sb.from('budget_import_rules')
-      .upsert({ keyword, category_id }, { onConflict: 'keyword' })
+      .upsert({ keyword: kw, category_id }, { onConflict: 'keyword' })
     if (!error) {
-      setSavedRules(s => new Set(s).add(keyword))
-      setRules(r => [...r.filter(x => x.keyword !== keyword), { keyword, category_id }])
+      setSavedRules(s => new Set(s).add(kw))
+      setRules(r => [...r.filter(x => x.keyword !== kw), { keyword: kw, category_id }])
     }
+    setEditingRule(null)
   }
 
   function applyRules(desc: string, cats: any[], rls: any[]) {
@@ -204,18 +206,35 @@ export default function ImportPage() {
                   <option value="">Uncategorized</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
                 </select>
-                <button
-                  onClick={() => saveAsRule(r.description, r.category_id)}
-                  disabled={!r.category_id}
-                  title="규칙으로 저장"
-                  className={`shrink-0 text-base transition-colors ${
-                    savedRules.has(r.description.toLowerCase().trim())
-                      ? 'text-brand-500'
-                      : 'text-gray-300 hover:text-brand-400'
-                  } disabled:opacity-30 disabled:cursor-not-allowed`}
-                >
-                  🔖
-                </button>
+                {editingRule?.rowIndex === i ? (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <input
+                      autoFocus
+                      className="input text-xs py-0.5 w-28"
+                      value={editingRule.keyword}
+                      onChange={e => setEditingRule(r => r ? { ...r, keyword: e.target.value } : null)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') saveAsRule(editingRule.keyword, r.category_id)
+                        if (e.key === 'Escape') setEditingRule(null)
+                      }}
+                    />
+                    <button onClick={() => saveAsRule(editingRule.keyword, r.category_id)} className="text-green-500 text-sm">✓</button>
+                    <button onClick={() => setEditingRule(null)} className="text-gray-300 text-sm">✕</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => r.category_id && setEditingRule({ rowIndex: i, keyword: r.description.toLowerCase().trim() })}
+                    disabled={!r.category_id}
+                    title="규칙으로 저장"
+                    className={`shrink-0 text-base transition-colors ${
+                      savedRules.has(r.description.toLowerCase().trim())
+                        ? 'text-brand-500'
+                        : 'text-gray-300 hover:text-brand-400'
+                    } disabled:opacity-30 disabled:cursor-not-allowed`}
+                  >
+                    🔖
+                  </button>
+                )}
                 <span className={`text-xs font-medium shrink-0 w-20 text-right ${r.type === 'income' ? 'text-green-600' : 'text-gray-700'}`}>
                   {r.type === 'income' ? '+' : '-'}${r.amount.toFixed(2)}
                 </span>

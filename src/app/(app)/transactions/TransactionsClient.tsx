@@ -20,6 +20,7 @@ export default function TransactionsClient({
   const [transactions, setTransactions] = useState(initial)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [savedRules, setSavedRules] = useState<Set<string>>(new Set())
+  const [editingRule, setEditingRule] = useState<{ txId: string; keyword: string } | null>(null)
 
   useEffect(() => {
     const sb = createClient()
@@ -28,12 +29,13 @@ export default function TransactionsClient({
     })
   }, [])
 
-  async function saveAsRule(description: string, category_id: string) {
-    if (!category_id) return
-    const keyword = description.toLowerCase().trim()
+  async function saveAsRule(keyword: string, category_id: string) {
+    if (!category_id || !keyword.trim()) return
+    const kw = keyword.toLowerCase().trim()
     const sb = createClient()
-    await sb.from('budget_import_rules').upsert({ keyword, category_id }, { onConflict: 'keyword' })
-    setSavedRules(s => new Set(s).add(keyword))
+    await sb.from('budget_import_rules').upsert({ keyword: kw, category_id }, { onConflict: 'keyword' })
+    setSavedRules(s => new Set(s).add(kw))
+    setEditingRule(null)
   }
 
   const filtered = transactions.filter(t => {
@@ -129,18 +131,35 @@ export default function TransactionsClient({
                   {t.irs_category ?? t.tax_type}
                 </span>
               )}
-              <button
-                onClick={() => saveAsRule(t.description, t.category_id)}
-                disabled={!t.category_id}
-                title="규칙으로 저장"
-                className={`text-base transition-colors ${
-                  savedRules.has(t.description.toLowerCase().trim())
-                    ? 'text-brand-500'
-                    : 'text-gray-300 hover:text-brand-400'
-                } disabled:opacity-30 disabled:cursor-not-allowed`}
-              >
-                🔖
-              </button>
+              {editingRule?.txId === t.id ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    autoFocus
+                    className="input text-xs py-0.5 w-28"
+                    value={editingRule.keyword}
+                    onChange={e => setEditingRule(r => r ? { ...r, keyword: e.target.value } : null)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') saveAsRule(editingRule.keyword, t.category_id)
+                      if (e.key === 'Escape') setEditingRule(null)
+                    }}
+                  />
+                  <button onClick={() => saveAsRule(editingRule.keyword, t.category_id)} className="text-green-500 text-sm">✓</button>
+                  <button onClick={() => setEditingRule(null)} className="text-gray-300 text-sm">✕</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => t.category_id && setEditingRule({ txId: t.id, keyword: t.description.toLowerCase().trim() })}
+                  disabled={!t.category_id}
+                  title="규칙으로 저장"
+                  className={`text-base transition-colors ${
+                    savedRules.has(t.description.toLowerCase().trim())
+                      ? 'text-brand-500'
+                      : 'text-gray-300 hover:text-brand-400'
+                  } disabled:opacity-30 disabled:cursor-not-allowed`}
+                >
+                  🔖
+                </button>
+              )}
               <p className={`text-sm font-semibold ${t.type === 'income' ? 'text-green-600' : 'text-gray-800'}`}>
                 {t.type === 'income' ? '+' : '-'}{fmt(Number(t.amount))}
               </p>
