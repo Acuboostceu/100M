@@ -6,6 +6,7 @@ import { Account, Category, Transaction } from '@/lib/types'
 
 type Entity = 'glow' | 'acuboost' | 'personal'
 type Tab = 'overview' | 'transactions' | 'import'
+type Person = 'all' | 'jiyeon' | 'junwoo'
 
 function fmt(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -48,6 +49,26 @@ const ENTITY_CONFIG = {
   personal:  { label: 'Personal',  icon: '🏠', color: 'text-emerald-600', bg: 'bg-emerald-50' },
 }
 
+const PERSON_TABS: { key: Person; label: string }[] = [
+  { key: 'all',    label: '전체' },
+  { key: 'jiyeon', label: '지연' },
+  { key: 'junwoo', label: '준우' },
+]
+
+function AccountCard({ account }: { account: Account }) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-white p-3 shadow-sm">
+      <p className="text-xs text-gray-400 truncate mb-1">{account.name}</p>
+      <p className={`text-base font-bold ${account.is_debt ? 'text-red-500' : 'text-gray-800'}`}>
+        {fmt(Number(account.balance))}
+      </p>
+      {account.credit_limit && (
+        <p className="text-xs text-gray-400 mt-0.5">한도 {fmt(Number(account.credit_limit))}</p>
+      )}
+    </div>
+  )
+}
+
 export default function EntityClient({
   entity, accounts: initialAccounts, transactions: initialTxs, categories, rules: initialRules,
 }: {
@@ -65,10 +86,26 @@ export default function EntityClient({
   const [rules, setRules] = useState(initialRules)
   const [accounts] = useState(initialAccounts)
 
+  // ── Person filter (Personal only) ────────────────────────
+  const [person, setPerson] = useState<Person>('all')
+
+  const displayedAccounts = entity === 'personal' && person !== 'all'
+    ? accounts.filter(a => a.owner === person)
+    : accounts
+
+  const displayedTxIds = new Set(displayedAccounts.map(a => a.id))
+  const displayedTransactions = entity === 'personal' && person !== 'all'
+    ? transactions.filter(t => displayedTxIds.has(t.account_id))
+    : transactions
+
   // ── Summary ───────────────────────────────────────────────
-  const income  = transactions.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0)
-  const expense = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0)
+  const income  = displayedTransactions.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0)
+  const expense = displayedTransactions.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0)
   const net = income - expense
+
+  // ── Account grouping for Overview ─────────────────────────
+  const bankAccounts = displayedAccounts.filter(a => a.type === 'joint_account' || a.type === 'office_account')
+  const cardAccounts = displayedAccounts.filter(a => a.type === 'personal_card' || a.type === 'business_card')
 
   // ── Transactions state ────────────────────────────────────
   const [txFilter, setTxFilter] = useState({ account: '', tax_type: '', search: '' })
@@ -76,7 +113,7 @@ export default function EntityClient({
   const [editingRule, setEditingRule] = useState<{ id: string; keyword: string } | null>(null)
   const [savedRules, setSavedRules] = useState<Set<string>>(new Set(initialRules.map((r: any) => r.keyword)))
 
-  const filteredTxs = transactions.filter(t => {
+  const filteredTxs = displayedTransactions.filter(t => {
     if (txFilter.account && t.account_id !== txFilter.account) return false
     if (txFilter.tax_type && t.tax_type !== txFilter.tax_type) return false
     if (txFilter.search && !t.description.toLowerCase().includes(txFilter.search.toLowerCase())) return false
@@ -197,6 +234,22 @@ export default function EntityClient({
         <h1 className={`text-2xl font-bold ${cfg.color}`}>{cfg.label}</h1>
       </div>
 
+      {/* Person toggle — Personal only */}
+      {entity === 'personal' && (
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+          {PERSON_TABS.map(p => (
+            <button key={p.key} onClick={() => setPerson(p.key)}
+              className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                person === p.key
+                  ? 'bg-white text-emerald-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-3">
         {[
@@ -227,32 +280,61 @@ export default function EntityClient({
 
       {/* ── Overview tab ── */}
       {tab === 'overview' && (
-        <div className="card">
-          <h2 className="text-sm font-semibold mb-3">Recent transactions</h2>
-          {transactions.slice(0, 10).length === 0 && (
-            <p className="text-sm text-gray-400 text-center py-6">No transactions yet</p>
-          )}
-          <div className="divide-y divide-gray-50">
-            {transactions.slice(0, 10).map(t => (
-              <div key={t.id} className="flex items-center justify-between py-2.5">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-base shrink-0">{(t as any).category?.icon ?? '📌'}</span>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{t.description}</p>
-                    <p className="text-xs text-gray-400">{t.date} · {(t as any).category?.name ?? 'Uncategorized'}</p>
-                  </div>
-                </div>
-                <p className={`text-sm font-semibold shrink-0 ml-2 ${t.type === 'income' ? 'text-green-600' : 'text-gray-700'}`}>
-                  {t.type === 'income' ? '+' : '-'}{fmt(Number(t.amount))}
-                </p>
+        <div className="space-y-4">
+          {/* Bank Accounts */}
+          {bankAccounts.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Bank Accounts</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {bankAccounts.map(a => <AccountCard key={a.id} account={a} />)}
               </div>
-            ))}
-          </div>
-          {transactions.length > 10 && (
-            <button onClick={() => setTab('transactions')} className="text-xs text-brand-600 mt-3">
-              See all {transactions.length} transactions →
-            </button>
+            </div>
           )}
+
+          {/* Credit Cards */}
+          {cardAccounts.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Credit Cards</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {cardAccounts.map(a => <AccountCard key={a.id} account={a} />)}
+              </div>
+            </div>
+          )}
+
+          {displayedAccounts.length === 0 && (
+            <div className="card text-center py-8 text-sm text-gray-400">
+              계좌가 없습니다. Settings에서 추가해 주세요.
+            </div>
+          )}
+
+          {/* Recent transactions */}
+          <div className="card">
+            <h2 className="text-sm font-semibold mb-3">Recent transactions</h2>
+            {displayedTransactions.slice(0, 10).length === 0 && (
+              <p className="text-sm text-gray-400 text-center py-6">No transactions yet</p>
+            )}
+            <div className="divide-y divide-gray-50">
+              {displayedTransactions.slice(0, 10).map(t => (
+                <div key={t.id} className="flex items-center justify-between py-2.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-base shrink-0">{(t as any).category?.icon ?? '📌'}</span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{t.description}</p>
+                      <p className="text-xs text-gray-400">{t.date} · {(t as any).category?.name ?? 'Uncategorized'}</p>
+                    </div>
+                  </div>
+                  <p className={`text-sm font-semibold shrink-0 ml-2 ${t.type === 'income' ? 'text-green-600' : 'text-gray-700'}`}>
+                    {t.type === 'income' ? '+' : '-'}{fmt(Number(t.amount))}
+                  </p>
+                </div>
+              ))}
+            </div>
+            {displayedTransactions.length > 10 && (
+              <button onClick={() => setTab('transactions')} className="text-xs text-brand-600 mt-3">
+                See all {displayedTransactions.length} transactions →
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -265,7 +347,7 @@ export default function EntityClient({
             <select className="input w-auto" value={txFilter.account}
               onChange={e => setTxFilter(f => ({ ...f, account: e.target.value }))}>
               <option value="">All accounts</option>
-              {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              {displayedAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
             <select className="input w-auto" value={txFilter.tax_type}
               onChange={e => setTxFilter(f => ({ ...f, tax_type: e.target.value }))}>

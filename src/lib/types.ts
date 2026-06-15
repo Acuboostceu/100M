@@ -8,6 +8,7 @@ export interface Account {
   name: string
   type: AccountType
   entity: Entity
+  owner?: string | null
   balance: number
   credit_limit?: number
   is_debt: boolean

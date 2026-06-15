@@ -24,10 +24,17 @@ const ENTITIES: { value: Entity; label: string; color: string }[] = [
   { value: 'personal', label: 'Personal', color: 'bg-emerald-100 text-emerald-700' },
 ]
 
+const OWNERS = [
+  { value: '',       label: '공동 / 미지정' },
+  { value: 'jiyeon', label: '지연' },
+  { value: 'junwoo', label: '준우' },
+]
+
 const EMPTY_FORM = {
   name: '',
   type: 'joint_account' as AccountType,
   entity: 'glow' as Entity,
+  owner: '',
   balance: '',
   is_debt: false,
   credit_limit: '',
@@ -77,6 +84,7 @@ export default function SettingsClient({
       name: form.name.trim(),
       type: form.type,
       entity: form.entity,
+      owner: form.owner || null,
       balance: parseFloat(form.balance || '0'),
       is_debt: form.is_debt,
       credit_limit:    (isCard || form.is_debt) && form.credit_limit    ? parseFloat(form.credit_limit)    : null,
@@ -226,10 +234,19 @@ export default function SettingsClient({
             <div>
               <label className="label">Entity</label>
               <select className="input" value={form.entity}
-                onChange={e => setForm(f => ({ ...f, entity: e.target.value as Entity }))}>
+                onChange={e => setForm(f => ({ ...f, entity: e.target.value as Entity, owner: '' }))}>
                 {ENTITIES.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
               </select>
             </div>
+            {form.entity === 'personal' && (
+              <div>
+                <label className="label">Owner</label>
+                <select className="input" value={form.owner}
+                  onChange={e => setForm(f => ({ ...f, owner: e.target.value }))}>
+                  {OWNERS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <label className="label">Current balance</label>
               <input className="input" type="number" placeholder="0.00"
