@@ -4,6 +4,18 @@
 
 create extension if not exists "uuid-ossp";
 
+-- ─── Family members (shared access between spouses) ──────────────────────────
+create table budget_family_members (
+  id               uuid primary key default uuid_generate_v4(),
+  account_owner_id uuid references auth.users not null,
+  member_id        uuid references auth.users not null,
+  created_at       timestamptz default now(),
+  unique(account_owner_id, member_id)
+);
+alter table budget_family_members enable row level security;
+create policy "own family" on budget_family_members
+  using (auth.uid() = account_owner_id or auth.uid() = member_id);
+
 -- ─── Accounts ────────────────────────────────────────────────────────────────
 create table budget_accounts (
   id            uuid primary key default uuid_generate_v4(),
@@ -22,18 +34,6 @@ create policy "family members access" on budget_accounts
   using (auth.uid() = user_id or exists (
     select 1 from budget_family_members fm where fm.account_owner_id = user_id and fm.member_id = auth.uid()
   ));
-
--- ─── Family members (shared access between spouses) ──────────────────────────
-create table budget_family_members (
-  id               uuid primary key default uuid_generate_v4(),
-  account_owner_id uuid references auth.users not null,
-  member_id        uuid references auth.users not null,
-  created_at       timestamptz default now(),
-  unique(account_owner_id, member_id)
-);
-alter table budget_family_members enable row level security;
-create policy "own family" on budget_family_members
-  using (auth.uid() = account_owner_id or auth.uid() = member_id);
 
 -- ─── Categories ──────────────────────────────────────────────────────────────
 create table budget_categories (
