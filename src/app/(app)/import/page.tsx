@@ -39,6 +39,7 @@ export default function ImportPage() {
   const [accountId, setAccountId] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(0)
+  const [savedRules, setSavedRules] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
 
   async function loadData() {
@@ -55,6 +56,18 @@ export default function ImportPage() {
   }
 
   useState(() => { loadData() })
+
+  async function saveAsRule(desc: string, category_id: string) {
+    if (!category_id) return
+    const keyword = desc.toLowerCase().trim()
+    const sb = createClient()
+    const { error } = await sb.from('budget_import_rules')
+      .upsert({ keyword, category_id }, { onConflict: 'keyword' })
+    if (!error) {
+      setSavedRules(s => new Set(s).add(keyword))
+      setRules(r => [...r.filter(x => x.keyword !== keyword), { keyword, category_id }])
+    }
+  }
 
   function applyRules(desc: string, cats: any[], rls: any[]) {
     const d = desc.toLowerCase()
@@ -191,6 +204,18 @@ export default function ImportPage() {
                   <option value="">Uncategorized</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
                 </select>
+                <button
+                  onClick={() => saveAsRule(r.description, r.category_id)}
+                  disabled={!r.category_id}
+                  title="규칙으로 저장"
+                  className={`shrink-0 text-base transition-colors ${
+                    savedRules.has(r.description.toLowerCase().trim())
+                      ? 'text-brand-500'
+                      : 'text-gray-300 hover:text-brand-400'
+                  } disabled:opacity-30 disabled:cursor-not-allowed`}
+                >
+                  🔖
+                </button>
                 <span className={`text-xs font-medium shrink-0 w-20 text-right ${r.type === 'income' ? 'text-green-600' : 'text-gray-700'}`}>
                   {r.type === 'income' ? '+' : '-'}${r.amount.toFixed(2)}
                 </span>
