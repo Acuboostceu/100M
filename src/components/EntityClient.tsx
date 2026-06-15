@@ -98,9 +98,13 @@ export default function EntityClient({
     ? transactions.filter(t => displayedTxIds.has(t.account_id))
     : transactions
 
-  // ── Summary ───────────────────────────────────────────────
-  const income  = displayedTransactions.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0)
-  const expense = displayedTransactions.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0)
+  // ── Summary (current month only) ─────────────────────────
+  const now = new Date()
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const monthLabel = now.toLocaleString('en-US', { month: 'long', year: 'numeric' })
+  const monthlyTxs = displayedTransactions.filter(t => t.date.startsWith(currentMonth))
+  const income  = monthlyTxs.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0)
+  const expense = monthlyTxs.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0)
   const net = income - expense
 
   // ── Account grouping for Overview ─────────────────────────
@@ -260,6 +264,7 @@ export default function EntityClient({
           <div key={c.label} className="card">
             <p className="text-xs text-gray-400 mb-1">{c.label}</p>
             <p className={`text-lg font-bold ${c.cls}`}>{fmt(c.value)}</p>
+            <p className="text-xs text-gray-300 mt-0.5">{monthLabel}</p>
           </div>
         ))}
       </div>
