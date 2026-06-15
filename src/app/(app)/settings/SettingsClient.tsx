@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Account, AccountType, Category, ImportRule } from '@/lib/types'
 import { useRouter } from 'next/navigation'
@@ -34,7 +34,7 @@ function fmt(n: number) {
 
 export default function SettingsClient({
   accounts: initial,
-  categories,
+  categories: initialCategories,
   rules: initialRules,
 }: {
   accounts: Account[]
@@ -43,6 +43,13 @@ export default function SettingsClient({
 }) {
   const router = useRouter()
   const supabase = createClient()
+
+  const [categories, setCategories] = useState<Category[]>(initialCategories)
+  useEffect(() => {
+    supabase.from('budget_categories').select('*').order('name').then(({ data }) => {
+      if (data && data.length > 0) setCategories(data)
+    })
+  }, [])
 
   // ── Accounts ──────────────────────────────────────────────
   const [accounts, setAccounts] = useState(initial)
