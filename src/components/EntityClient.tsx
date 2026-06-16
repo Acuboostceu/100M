@@ -231,8 +231,8 @@ export default function EntityClient({
 
           let finalType: 'expense' | 'income' | 'transfer'
           if (isCard) {
-            // Card: positive = expense (charge), negative = transfer (payment/refund)
-            finalType = numAmt > 0 ? 'expense' : 'transfer'
+            // Card (Chase): negative = expense (charge), positive = transfer (payment/refund)
+            finalType = numAmt < 0 ? 'expense' : 'transfer'
           } else {
             // Bank: positive = income (deposit), negative = expense (withdrawal)
             const isTransfer = transferKeywords.some(k => desc.toLowerCase().includes(k))
