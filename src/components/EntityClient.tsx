@@ -168,15 +168,19 @@ export default function EntityClient({
   }
 
   function handleFile(file: File) {
+    const selectedAccount = accounts.find(a => a.id === accountId)
+    const isCard = selectedAccount?.type === 'personal_card' || selectedAccount?.type === 'business_card'
+
     Papa.parse(file, {
       header: true, skipEmptyLines: true,
       complete: ({ data }) => {
         const rows = data as any[]
-        // Grab latest balance from last row's Balance column
         const lastRow = rows[rows.length - 1]
         const rawBal = lastRow ? getCol(lastRow, 'balance', 'running balance', 'running bal', 'account balance') : ''
         const latestBalance = rawBal ? parseFloat(String(rawBal).replace(/[,$]/g, '')) : null
         setImportedBalance(isNaN(latestBalance ?? NaN) ? null : latestBalance)
+
+        const transferKeywords = ['payment', 'autopay', 'auto pay', 'online pmt', 'mobile pmt', 'transfer to', 'transfer from']
 
         const parsed: ParsedRow[] = rows.map(row => {
           const rawDesc = getCol(row, 'description', 'merchant', 'name', 'memo') || String(Object.values(row)[1] ?? '')
@@ -184,16 +188,25 @@ export default function EntityClient({
           const rawAmt = getCol(row, 'amount', 'debit', 'credit', 'transaction amount')
           const numAmt = parseFloat(String(rawAmt).replace(/[,$]/g, ''))
           const amount = Math.abs(numAmt)
-          const type: 'expense' | 'income' = numAmt > 0 ? 'income' : 'expense'
           const rawDate = getCol(row, 'date', 'transaction date', 'posted date', 'posting date', 'trans date')
           const parsedDate = rawDate ? new Date(rawDate) : null
           const date = parsedDate && !isNaN(parsedDate.getTime())
             ? parsedDate.toISOString().split('T')[0]
             : new Date().toISOString().split('T')[0]
-          const transferKeywords = ['payment', 'autopay', 'auto pay', 'online pmt', 'mobile pmt', 'transfer to', 'transfer from']
-          const isTransfer = transferKeywords.some(k => desc.toLowerCase().includes(k))
-          const finalType: 'expense' | 'income' | 'transfer' = isTransfer ? 'transfer' : type
-          const { category_id, tax_type } = isTransfer ? { category_id: '', tax_type: 'none' as const } : applyRules(desc)
+
+          let finalType: 'expense' | 'income' | 'transfer'
+          if (isCard) {
+            // Card: positive = expense (charge), negative = transfer (payment/refund)
+            finalType = numAmt > 0 ? 'expense' : 'transfer'
+          } else {
+            // Bank: positive = income (deposit), negative = expense (withdrawal)
+            const isTransfer = transferKeywords.some(k => desc.toLowerCase().includes(k))
+            finalType = isTransfer ? 'transfer' : numAmt > 0 ? 'income' : 'expense'
+          }
+
+          const { category_id, tax_type } = finalType === 'transfer'
+            ? { category_id: '', tax_type: 'none' as const }
+            : applyRules(desc)
           return { date, description: desc, amount, type: finalType, selected: true, category_id, tax_type }
         }).filter(r => r.amount > 0)
         setRows(parsed)
