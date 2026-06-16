@@ -39,7 +39,7 @@ function cleanDescription(raw: string): string {
 
 interface ParsedRow {
   date: string; description: string; amount: number
-  type: 'expense' | 'income'; selected: boolean
+  type: 'expense' | 'income' | 'transfer'; selected: boolean
   category_id: string; tax_type: 'personal' | 'business' | 'none'
 }
 
@@ -119,7 +119,8 @@ export default function EntityClient({
 
   const filteredTxs = displayedTransactions.filter(t => {
     if (txFilter.account && t.account_id !== txFilter.account) return false
-    if (txFilter.tax_type && t.tax_type !== txFilter.tax_type) return false
+    if (txFilter.tax_type === 'transfer' && t.type !== 'transfer') return false
+    if (txFilter.tax_type && txFilter.tax_type !== 'transfer' && t.tax_type !== txFilter.tax_type) return false
     if (txFilter.search && !t.description.toLowerCase().includes(txFilter.search.toLowerCase())) return false
     return true
   })
@@ -189,8 +190,11 @@ export default function EntityClient({
           const date = parsedDate && !isNaN(parsedDate.getTime())
             ? parsedDate.toISOString().split('T')[0]
             : new Date().toISOString().split('T')[0]
-          const { category_id, tax_type } = applyRules(desc)
-          return { date, description: desc, amount, type, selected: true, category_id, tax_type }
+          const transferKeywords = ['payment', 'autopay', 'auto pay', 'online pmt', 'mobile pmt', 'transfer to', 'transfer from']
+          const isTransfer = transferKeywords.some(k => desc.toLowerCase().includes(k))
+          const finalType: 'expense' | 'income' | 'transfer' = isTransfer ? 'transfer' : type
+          const { category_id, tax_type } = isTransfer ? { category_id: '', tax_type: 'none' as const } : applyRules(desc)
+          return { date, description: desc, amount, type: finalType, selected: true, category_id, tax_type }
         }).filter(r => r.amount > 0)
         setRows(parsed)
       },
@@ -341,8 +345,10 @@ export default function EntityClient({
                       <p className="text-xs text-gray-400">{t.date} · {(t as any).category?.name ?? 'Uncategorized'}</p>
                     </div>
                   </div>
-                  <p className={`text-sm font-semibold shrink-0 ml-2 ${t.type === 'income' ? 'text-green-600' : 'text-gray-700'}`}>
-                    {t.type === 'income' ? '+' : '-'}{fmt(Number(t.amount))}
+                  <p className={`text-sm font-semibold shrink-0 ml-2 ${
+                    t.type === 'income' ? 'text-green-600' : t.type === 'transfer' ? 'text-gray-400' : 'text-gray-700'
+                  }`}>
+                    {t.type === 'income' ? '+' : t.type === 'transfer' ? '↔' : '-'}{fmt(Number(t.amount))}
                   </p>
                 </div>
               ))}
@@ -369,10 +375,11 @@ export default function EntityClient({
             </select>
             <select className="input w-auto" value={txFilter.tax_type}
               onChange={e => setTxFilter(f => ({ ...f, tax_type: e.target.value }))}>
-              <option value="">All types</option>
+              <option value="">All</option>
               <option value="business">Business</option>
               <option value="personal">Personal</option>
               <option value="none">Untagged</option>
+              <option value="transfer">Transfer</option>
             </select>
           </div>
           <div className="card divide-y divide-gray-50">
@@ -424,8 +431,10 @@ export default function EntityClient({
                       🔖
                     </button>
                   )}
-                  <p className={`text-sm font-semibold w-20 text-right ${t.type === 'income' ? 'text-green-600' : 'text-gray-700'}`}>
-                    {t.type === 'income' ? '+' : '-'}{fmt(Number(t.amount))}
+                  <p className={`text-sm font-semibold w-20 text-right ${
+                    t.type === 'income' ? 'text-green-600' : t.type === 'transfer' ? 'text-gray-400' : 'text-gray-700'
+                  }`}>
+                    {t.type === 'income' ? '+' : t.type === 'transfer' ? '↔' : '-'}{fmt(Number(t.amount))}
                   </p>
                 </div>
               </div>
@@ -484,14 +493,24 @@ export default function EntityClient({
                       <p className="text-sm font-medium truncate">{r.description}</p>
                       <p className="text-xs text-gray-400">{r.date}</p>
                     </div>
-                    <select className="input w-44 text-xs py-1" value={r.category_id}
-                      onChange={e => {
-                        const cat = categories.find(c => c.id === e.target.value)
-                        setRows(rs => rs.map((x, j) => j === i ? { ...x, category_id: e.target.value, tax_type: cat?.tax_type ?? 'none' } : x))
-                      }}>
-                      <option value="">Uncategorized</option>
-                      {categories.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+                    <select className="input w-24 text-xs py-1 shrink-0" value={r.type}
+                      onChange={e => setRows(rs => rs.map((x, j) => j === i
+                        ? { ...x, type: e.target.value as ParsedRow['type'], category_id: e.target.value === 'transfer' ? '' : x.category_id }
+                        : x))}>
+                      <option value="expense">Expense</option>
+                      <option value="income">Income</option>
+                      <option value="transfer">Transfer</option>
                     </select>
+                    {r.type !== 'transfer' && (
+                      <select className="input w-40 text-xs py-1" value={r.category_id}
+                        onChange={e => {
+                          const cat = categories.find(c => c.id === e.target.value)
+                          setRows(rs => rs.map((x, j) => j === i ? { ...x, category_id: e.target.value, tax_type: cat?.tax_type ?? 'none' } : x))
+                        }}>
+                        <option value="">Uncategorized</option>
+                        {categories.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+                      </select>
+                    )}
                     {importEditingRule?.rowIndex === i ? (
                       <div className="flex items-center gap-1 shrink-0">
                         <input autoFocus className="input text-xs py-0.5 w-28"
@@ -515,8 +534,10 @@ export default function EntityClient({
                         🔖
                       </button>
                     )}
-                    <span className={`text-xs font-medium shrink-0 w-20 text-right ${r.type === 'income' ? 'text-green-600' : 'text-gray-700'}`}>
-                      {r.type === 'income' ? '+' : '-'}${r.amount.toFixed(2)}
+                    <span className={`text-xs font-medium shrink-0 w-20 text-right ${
+                      r.type === 'income' ? 'text-green-600' : r.type === 'transfer' ? 'text-gray-400' : 'text-gray-700'
+                    }`}>
+                      {r.type === 'income' ? '+' : r.type === 'transfer' ? '↔' : '-'}${r.amount.toFixed(2)}
                     </span>
                   </div>
                 ))}
