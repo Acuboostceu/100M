@@ -342,36 +342,74 @@ export default function EntityClient({
             </div>
           )}
 
-          {/* Recent transactions */}
-          <div className="card">
-            <h2 className="text-sm font-semibold mb-3">Recent transactions</h2>
-            {displayedTransactions.slice(0, 10).length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-6">No transactions yet</p>
-            )}
-            <div className="divide-y divide-gray-50">
-              {displayedTransactions.slice(0, 10).map(t => (
-                <div key={t.id} className="flex items-center justify-between py-2.5">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-base shrink-0">{(t as any).category?.icon ?? '📌'}</span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{t.description}</p>
-                      <p className="text-xs text-gray-400">{t.date} · {(t as any).category?.name ?? 'Uncategorized'}</p>
+          {/* Category breakdown */}
+          {(() => {
+            const expenseRows = Object.values(
+              monthlyTxs.filter(t => t.type === 'expense').reduce((acc, t) => {
+                const key = t.category_id || '__none__'
+                if (!acc[key]) acc[key] = { icon: (t as any).category?.icon ?? '📌', name: (t as any).category?.name ?? 'Uncategorized', amount: 0 }
+                acc[key].amount += Number(t.amount)
+                return acc
+              }, {} as Record<string, { icon: string; name: string; amount: number }>)
+            ).sort((a, b) => b.amount - a.amount)
+
+            const incomeRows = Object.values(
+              monthlyTxs.filter(t => t.type === 'income').reduce((acc, t) => {
+                const key = t.category_id || '__none__'
+                if (!acc[key]) acc[key] = { icon: (t as any).category?.icon ?? '💰', name: (t as any).category?.name ?? 'Uncategorized', amount: 0 }
+                acc[key].amount += Number(t.amount)
+                return acc
+              }, {} as Record<string, { icon: string; name: string; amount: number }>)
+            ).sort((a, b) => b.amount - a.amount)
+
+            if (expenseRows.length === 0 && incomeRows.length === 0) {
+              return (
+                <div className="card text-center py-8 text-sm text-gray-400">
+                  {monthLabel} 거래내역이 없습니다
+                </div>
+              )
+            }
+
+            return (
+              <div className="space-y-3">
+                {expenseRows.length > 0 && (
+                  <div className="card">
+                    <h2 className="text-sm font-semibold mb-3 text-gray-700">Expenses — {monthLabel}</h2>
+                    <div className="space-y-0">
+                      {expenseRows.map((row, i) => (
+                        <div key={i} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">{row.icon}</span>
+                            <span className="text-sm text-gray-700">{row.name}</span>
+                          </div>
+                          <span className="text-sm font-semibold text-gray-800">-{fmt(row.amount)}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  <p className={`text-sm font-semibold shrink-0 ml-2 ${
-                    t.type === 'income' ? 'text-green-600' : t.type === 'transfer' ? 'text-gray-400' : 'text-gray-700'
-                  }`}>
-                    {t.type === 'income' ? '+' : t.type === 'transfer' ? '↔' : '-'}{fmt(Number(t.amount))}
-                  </p>
-                </div>
-              ))}
-            </div>
-            {displayedTransactions.length > 10 && (
-              <button onClick={() => setTab('transactions')} className="text-xs text-brand-600 mt-3">
-                See all {displayedTransactions.length} transactions →
-              </button>
-            )}
-          </div>
+                )}
+                {incomeRows.length > 0 && (
+                  <div className="card">
+                    <h2 className="text-sm font-semibold mb-3 text-gray-700">Income — {monthLabel}</h2>
+                    <div className="space-y-0">
+                      {incomeRows.map((row, i) => (
+                        <div key={i} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">{row.icon}</span>
+                            <span className="text-sm text-gray-700">{row.name}</span>
+                          </div>
+                          <span className="text-sm font-semibold text-green-600">+{fmt(row.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <button onClick={() => setTab('transactions')} className="text-xs text-brand-600">
+                  개별 거래내역 보기 →
+                </button>
+              </div>
+            )
+          })()}
         </div>
       )}
 
