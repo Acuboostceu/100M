@@ -187,6 +187,13 @@ export default function EntityClient({
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(0)
   const [importedBalance, setImportedBalance] = useState<number | null>(null)
+
+  function flipSigns() {
+    setRows(rs => rs.map(r => ({
+      ...r,
+      type: r.type === 'expense' ? 'income' : r.type === 'income' ? 'expense' : 'transfer',
+    })))
+  }
   const [importEditingRule, setImportEditingRule] = useState<{ rowIndex: number; keyword: string } | null>(null)
   const [importSavedRules, setImportSavedRules] = useState<Set<string>>(new Set(initialRules.map((r: any) => r.keyword)))
   const fileRef = useRef<HTMLInputElement>(null)
@@ -229,9 +236,17 @@ export default function EntityClient({
             ? parsedDate.toISOString().split('T')[0]
             : new Date().toISOString().split('T')[0]
 
+          // Chase "Type" column: Sale / Return / Payment / Adjustment / Fee
+          const txTypeCol = getCol(row, 'type').toLowerCase().trim()
           let finalType: 'expense' | 'income' | 'transfer'
-          if (isCard) {
-            // Card (Chase): negative = expense (charge), positive = transfer (payment/refund)
+          if (txTypeCol === 'sale' || txTypeCol === 'fee') {
+            finalType = 'expense'
+          } else if (txTypeCol === 'payment' || txTypeCol === 'adjustment') {
+            finalType = 'transfer'
+          } else if (txTypeCol === 'return') {
+            finalType = 'transfer'
+          } else if (isCard) {
+            // Card fallback: negative = expense (charge), positive = transfer (payment)
             finalType = numAmt < 0 ? 'expense' : 'transfer'
           } else {
             // Bank: positive = income (deposit), negative = expense (withdrawal)
@@ -577,9 +592,11 @@ export default function EntityClient({
 
           {rows.length > 0 && (
             <div className="card space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <p className="text-sm font-semibold">{rows.filter(r => r.selected).length} / {rows.length} 선택됨</p>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
+                  <button onClick={flipSigns} title="Expense↔Income 부호 반전"
+                    className="btn-secondary text-xs px-3 py-1.5">↕ 부호 반전</button>
                   <button onClick={() => setRows(rs => rs.map(r => ({ ...r, selected: true })))}
                     className="btn-secondary text-xs px-3 py-1.5">전체 선택</button>
                   <button onClick={importSelected} disabled={saving} className="btn-primary">
