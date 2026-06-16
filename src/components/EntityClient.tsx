@@ -127,6 +127,7 @@ export default function EntityClient({
   const [editingCatId, setEditingCatId] = useState<string | null>(null)
   const [editingRule, setEditingRule] = useState<{ id: string; keyword: string } | null>(null)
   const [savedRules, setSavedRules] = useState<Set<string>>(new Set(initialRules.map((r: any) => r.keyword)))
+  const [applyAllPrompt, setApplyAllPrompt] = useState<{ description: string; category_id: string; count: number } | null>(null)
 
   const filteredTxs = displayedTransactions.filter(t => {
     if (txFilter.account && t.account_id !== txFilter.account) return false
@@ -138,6 +139,7 @@ export default function EntityClient({
 
   async function updateCategory(id: string, category_id: string) {
     const cat = categories.find(c => c.id === category_id)
+    const tx = transactions.find(t => t.id === id)
     await sb.from('budget_transactions').update({
       category_id: category_id || null,
       tax_type: cat?.tax_type ?? 'none',
@@ -146,6 +148,28 @@ export default function EntityClient({
     setTransactions(ts => ts.map(t => t.id === id
       ? { ...t, category_id, tax_type: cat?.tax_type ?? 'none', category: cat } as any : t))
     setEditingCatId(null)
+
+    // Check for other transactions with same description
+    if (tx && category_id) {
+      const others = transactions.filter(t => t.id !== id && t.description === tx.description && t.category_id !== category_id)
+      if (others.length > 0) setApplyAllPrompt({ description: tx.description, category_id, count: others.length })
+    }
+  }
+
+  async function applyToAll() {
+    if (!applyAllPrompt) return
+    const { description, category_id } = applyAllPrompt
+    const cat = categories.find(c => c.id === category_id)
+    const ids = transactions.filter(t => t.description === description && t.category_id !== category_id).map(t => t.id)
+    await sb.from('budget_transactions').update({
+      category_id,
+      tax_type: cat?.tax_type ?? 'none',
+      irs_category: cat?.irs_category ?? null,
+    }).in('id', ids)
+    setTransactions(ts => ts.map(t =>
+      ids.includes(t.id) ? { ...t, category_id, tax_type: cat?.tax_type ?? 'none', category: cat } as any : t
+    ))
+    setApplyAllPrompt(null)
   }
 
   async function saveRule(keyword: string, category_id: string) {
@@ -434,6 +458,17 @@ export default function EntityClient({
       {/* ── Transactions tab ── */}
       {tab === 'transactions' && (
         <div className="space-y-3">
+          {applyAllPrompt && (
+            <div className="card bg-brand-50 border border-brand-200 flex items-center justify-between gap-3">
+              <p className="text-sm text-brand-800">
+                <span className="font-medium">"{applyAllPrompt.description}"</span> 같은 설명의 거래 {applyAllPrompt.count}개도 같은 카테고리로 바꿀까요?
+              </p>
+              <div className="flex gap-2 shrink-0">
+                <button onClick={applyToAll} className="btn-primary text-xs px-3 py-1.5">전체 적용</button>
+                <button onClick={() => setApplyAllPrompt(null)} className="btn-secondary text-xs px-3 py-1.5">취소</button>
+              </div>
+            </div>
+          )}
           <div className="card flex flex-wrap gap-2">
             <input className="input flex-1 min-w-[140px]" placeholder="Search…"
               value={txFilter.search} onChange={e => setTxFilter(f => ({ ...f, search: e.target.value }))} />
