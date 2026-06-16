@@ -98,11 +98,22 @@ export default function EntityClient({
     ? transactions.filter(t => displayedTxIds.has(t.account_id))
     : transactions
 
-  // ── Summary (current month only) ─────────────────────────
+  // ── Month selector ────────────────────────────────────────
   const now = new Date()
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  const monthLabel = now.toLocaleString('en-US', { month: 'long', year: 'numeric' })
-  const monthlyTxs = displayedTransactions.filter(t => t.date.startsWith(currentMonth))
+  const availableMonths = Array.from(new Set(transactions.map(t => t.date.slice(0, 7)))).sort().reverse()
+  const defaultMonth = availableMonths[0] ?? currentMonth
+  const [selectedMonth, setSelectedMonth] = useState(defaultMonth)
+
+  function changeMonth(dir: 1 | -1) {
+    const [y, m] = selectedMonth.split('-').map(Number)
+    const d = new Date(y, m - 1 + dir, 1)
+    setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+  }
+  const monthLabel = new Date(selectedMonth + '-02').toLocaleString('en-US', { month: 'long', year: 'numeric' })
+
+  // ── Summary ───────────────────────────────────────────────
+  const monthlyTxs = displayedTransactions.filter(t => t.date.startsWith(selectedMonth))
   const income  = monthlyTxs.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0)
   const expense = monthlyTxs.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0)
   const net = income - expense
@@ -284,6 +295,14 @@ export default function EntityClient({
         </div>
       )}
 
+      {/* Month selector */}
+      <div className="flex items-center gap-2">
+        <button onClick={() => changeMonth(-1)} className="text-gray-400 hover:text-gray-700 px-1 text-lg leading-none">‹</button>
+        <span className="text-sm font-medium text-gray-600 min-w-[120px] text-center">{monthLabel}</span>
+        <button onClick={() => changeMonth(1)} disabled={selectedMonth >= currentMonth}
+          className="text-gray-400 hover:text-gray-700 disabled:opacity-30 px-1 text-lg leading-none">›</button>
+      </div>
+
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-3">
         {[
@@ -294,7 +313,6 @@ export default function EntityClient({
           <div key={c.label} className="card">
             <p className="text-xs text-gray-400 mb-1">{c.label}</p>
             <p className={`text-lg font-bold ${c.cls}`}>{fmt(c.value)}</p>
-            <p className="text-xs text-gray-300 mt-0.5">{monthLabel}</p>
           </div>
         ))}
       </div>
