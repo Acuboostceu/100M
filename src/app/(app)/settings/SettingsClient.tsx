@@ -73,8 +73,51 @@ export default function SettingsClient({
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [editingEntityId, setEditingEntityId] = useState<string | null>(null)
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState(EMPTY_FORM)
+  const [editSaving, setEditSaving] = useState(false)
   const [error, setError] = useState('')
   const isCard = form.type === 'personal_card' || form.type === 'business_card'
+  const isEditCard = editForm.type === 'personal_card' || editForm.type === 'business_card'
+
+  function startEdit(a: Account) {
+    setEditingAccountId(a.id)
+    setEditingEntityId(null)
+    setEditForm({
+      name: a.name,
+      type: a.type,
+      entity: a.entity,
+      owner: (a as any).owner ?? '',
+      balance: String(a.balance),
+      is_debt: a.is_debt,
+      credit_limit: a.credit_limit ? String(a.credit_limit) : '',
+      interest_rate: a.interest_rate ? String(a.interest_rate) : '',
+      minimum_payment: a.minimum_payment ? String(a.minimum_payment) : '',
+    })
+  }
+
+  async function handleUpdateAccount() {
+    if (!editingAccountId || !editForm.name.trim()) return
+    setEditSaving(true)
+    const payload = {
+      name: editForm.name.trim(),
+      type: editForm.type,
+      entity: editForm.entity,
+      owner: editForm.owner || null,
+      balance: parseFloat(editForm.balance || '0'),
+      is_debt: editForm.is_debt,
+      credit_limit:    (isEditCard || editForm.is_debt) && editForm.credit_limit    ? parseFloat(editForm.credit_limit)    : null,
+      interest_rate:   editForm.is_debt && editForm.interest_rate                   ? parseFloat(editForm.interest_rate)   : null,
+      minimum_payment: editForm.is_debt && editForm.minimum_payment                 ? parseFloat(editForm.minimum_payment) : null,
+    }
+    const { data, error: err } = await supabase.from('budget_accounts').update(payload).eq('id', editingAccountId).select().single()
+    if (!err && data) {
+      setAccounts(a => a.map(x => x.id === editingAccountId ? data : x))
+      setEditingAccountId(null)
+      router.refresh()
+    }
+    setEditSaving(false)
+  }
 
   async function handleAddAccount() {
     if (!form.name.trim()) return setError('Account name is required')
@@ -163,53 +206,113 @@ export default function SettingsClient({
 
         <div className="space-y-2">
           {accounts.map(a => (
-            <div key={a.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-              <div className="flex items-center gap-3">
-                <span className="text-xl">{TYPE_ICONS[a.type]}</span>
-                <div>
-                  <p className="text-sm font-medium">{a.name}</p>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    {editingEntityId === a.id ? (
-                      <div className="flex gap-1">
-                        {ENTITIES.map(e => (
-                          <button key={e.value} onClick={() => handleUpdateEntity(a.id, e.value)}
-                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${e.color}`}>
-                            {e.label}
-                          </button>
-                        ))}
-                        <button onClick={() => setEditingEntityId(null)} className="text-xs text-gray-400">✕</button>
-                      </div>
-                    ) : (
-                      <>
-                        <button onClick={() => setEditingEntityId(a.id)}
-                          className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                            ENTITIES.find(e => e.value === a.entity)?.color ?? 'bg-gray-100 text-gray-500'
-                          }`}>
-                          {ENTITIES.find(e => e.value === a.entity)?.label ?? 'Unassigned'} ✏️
-                        </button>
-                        <span className="text-xs text-gray-400">
-                          {ACCOUNT_TYPES.find(t => t.value === a.type)?.label}
-                          {a.is_debt && a.interest_rate ? ` · ${a.interest_rate}% APR` : ''}
-                        </span>
-                      </>
-                    )}
+            <div key={a.id} className="border-b border-gray-50 last:border-0">
+              {/* Account row */}
+              <div className="flex items-center justify-between py-2">
+                <div className="flex items-center gap-3">
+                  <span className="text-xl">{TYPE_ICONS[a.type]}</span>
+                  <div>
+                    <p className="text-sm font-medium">{a.name}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        ENTITIES.find(e => e.value === a.entity)?.color ?? 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {ENTITIES.find(e => e.value === a.entity)?.label ?? 'Unassigned'}
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        {ACCOUNT_TYPES.find(t => t.value === a.type)?.label}
+                        {a.is_debt && a.interest_rate ? ` · ${a.interest_rate}% APR` : ''}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="text-right">
-                  <p className={`text-sm font-semibold ${a.is_debt ? 'text-red-500' : 'text-gray-800'}`}>
-                    {fmt(Number(a.balance))}
-                  </p>
-                  {a.credit_limit && (
-                    <p className="text-xs text-gray-400">limit {fmt(Number(a.credit_limit))}</p>
-                  )}
+                <div className="flex items-center gap-2">
+                  <div className="text-right">
+                    <p className={`text-sm font-semibold ${a.is_debt ? 'text-red-500' : 'text-gray-800'}`}>
+                      {fmt(Number(a.balance))}
+                    </p>
+                    {a.credit_limit && (
+                      <p className="text-xs text-gray-400">limit {fmt(Number(a.credit_limit))}</p>
+                    )}
+                  </div>
+                  <button onClick={() => editingAccountId === a.id ? setEditingAccountId(null) : startEdit(a)}
+                    className={`text-xs px-2 py-1 rounded transition-colors ${editingAccountId === a.id ? 'text-brand-600' : 'text-gray-400 hover:text-gray-600'}`}>
+                    ✏️
+                  </button>
+                  <button onClick={() => handleDeleteAccount(a.id)} disabled={deletingId === a.id}
+                    className="text-gray-300 hover:text-red-400 transition-colors text-sm px-1">
+                    {deletingId === a.id ? '…' : '✕'}
+                  </button>
                 </div>
-                <button onClick={() => handleDeleteAccount(a.id)} disabled={deletingId === a.id}
-                  className="text-gray-300 hover:text-red-400 transition-colors text-sm px-1">
-                  {deletingId === a.id ? '…' : '✕'}
-                </button>
               </div>
+
+              {/* Inline edit form */}
+              {editingAccountId === a.id && (
+                <div className="bg-gray-50 rounded-xl p-4 mb-2 space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="label">Account name</label>
+                      <input className="input" value={editForm.name}
+                        onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="label">Type</label>
+                      <select className="input" value={editForm.type}
+                        onChange={e => setEditForm(f => ({ ...f, type: e.target.value as AccountType }))}>
+                        {ACCOUNT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Entity</label>
+                      <select className="input" value={editForm.entity}
+                        onChange={e => setEditForm(f => ({ ...f, entity: e.target.value as Entity }))}>
+                        {ENTITIES.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Balance</label>
+                      <input className="input" type="number"
+                        value={editForm.balance}
+                        onChange={e => setEditForm(f => ({ ...f, balance: e.target.value }))} />
+                    </div>
+                    {(isEditCard || editForm.is_debt) && (
+                      <div>
+                        <label className="label">Credit limit</label>
+                        <input className="input" type="number"
+                          value={editForm.credit_limit}
+                          onChange={e => setEditForm(f => ({ ...f, credit_limit: e.target.value }))} />
+                      </div>
+                    )}
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer w-fit">
+                    <input type="checkbox" checked={editForm.is_debt}
+                      onChange={e => setEditForm(f => ({ ...f, is_debt: e.target.checked }))} className="w-4 h-4 rounded" />
+                    <span className="text-sm">Debt account</span>
+                  </label>
+                  {editForm.is_debt && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="label">Interest rate (%)</label>
+                        <input className="input" type="number"
+                          value={editForm.interest_rate}
+                          onChange={e => setEditForm(f => ({ ...f, interest_rate: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="label">Minimum payment</label>
+                        <input className="input" type="number"
+                          value={editForm.minimum_payment}
+                          onChange={e => setEditForm(f => ({ ...f, minimum_payment: e.target.value }))} />
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <button onClick={handleUpdateAccount} disabled={editSaving} className="btn-primary text-sm">
+                      {editSaving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button onClick={() => setEditingAccountId(null)} className="btn-secondary text-sm">Cancel</button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
