@@ -84,7 +84,7 @@ export default function EntityClient({
   const [tab, setTab] = useState<Tab>('overview')
   const [transactions, setTransactions] = useState(initialTxs)
   const [rules, setRules] = useState(initialRules)
-  const [accounts] = useState(initialAccounts)
+  const [accounts, setAccounts] = useState(initialAccounts)
 
   // ── Person filter (Personal only) ────────────────────────
   const [person, setPerson] = useState<Person>('all')
@@ -150,6 +150,7 @@ export default function EntityClient({
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(0)
+  const [importedBalance, setImportedBalance] = useState<number | null>(null)
   const [importEditingRule, setImportEditingRule] = useState<{ rowIndex: number; keyword: string } | null>(null)
   const [importSavedRules, setImportSavedRules] = useState<Set<string>>(new Set(initialRules.map((r: any) => r.keyword)))
   const fileRef = useRef<HTMLInputElement>(null)
@@ -169,7 +170,14 @@ export default function EntityClient({
     Papa.parse(file, {
       header: true, skipEmptyLines: true,
       complete: ({ data }) => {
-        const parsed: ParsedRow[] = (data as any[]).map(row => {
+        const rows = data as any[]
+        // Grab latest balance from last row's Balance column
+        const lastRow = rows[rows.length - 1]
+        const rawBal = lastRow ? getCol(lastRow, 'balance', 'running balance', 'running bal', 'account balance') : ''
+        const latestBalance = rawBal ? parseFloat(String(rawBal).replace(/[,$]/g, '')) : null
+        setImportedBalance(isNaN(latestBalance ?? NaN) ? null : latestBalance)
+
+        const parsed: ParsedRow[] = rows.map(row => {
           const rawDesc = getCol(row, 'description', 'merchant', 'name', 'memo') || String(Object.values(row)[1] ?? '')
           const desc = cleanDescription(rawDesc)
           const rawAmt = getCol(row, 'amount', 'debit', 'credit', 'transaction amount')
@@ -206,6 +214,11 @@ export default function EntityClient({
     if (!error) {
       setSaved(selected.length)
       setRows([])
+      // Update account balance from CSV if available
+      if (importedBalance !== null) {
+        await sb.from('budget_accounts').update({ balance: importedBalance }).eq('id', accountId)
+        setAccounts(prev => prev.map(a => a.id === accountId ? { ...a, balance: importedBalance } : a))
+      }
       const { data: fresh } = await sb.from('budget_transactions')
         .select('*, category:budget_categories(*), account:budget_accounts(*)')
         .in('account_id', accounts.map(a => a.id))
