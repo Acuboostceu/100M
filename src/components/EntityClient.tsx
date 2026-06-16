@@ -212,6 +212,7 @@ export default function EntityClient({
   function handleFile(file: File) {
     const selectedAccount = accounts.find(a => a.id === accountId)
     const isCard = selectedAccount?.type === 'personal_card' || selectedAccount?.type === 'business_card'
+    const transferKeywords = ['payment', 'autopay', 'auto pay', 'online pmt', 'mobile pmt', 'transfer to', 'transfer from']
 
     Papa.parse(file, {
       header: true, skipEmptyLines: true,
@@ -222,36 +223,52 @@ export default function EntityClient({
         const latestBalance = rawBal ? parseFloat(String(rawBal).replace(/[,$]/g, '')) : null
         setImportedBalance(isNaN(latestBalance ?? NaN) ? null : latestBalance)
 
-        const transferKeywords = ['payment', 'autopay', 'auto pay', 'online pmt', 'mobile pmt', 'transfer to', 'transfer from']
+        // Detect Citi format: separate Debit / Credit columns (no single Amount)
+        const headers = rows[0] ? Object.keys(rows[0]).map(k => k.toLowerCase().trim()) : []
+        const isCitiFormat = headers.includes('debit') && headers.includes('credit') && !headers.includes('amount')
 
         const parsed: ParsedRow[] = rows.map(row => {
           const rawDesc = getCol(row, 'description', 'merchant', 'name', 'memo') || String(Object.values(row)[1] ?? '')
           const desc = cleanDescription(rawDesc)
-          const rawAmt = getCol(row, 'amount', 'debit', 'credit', 'transaction amount')
-          const numAmt = parseFloat(String(rawAmt).replace(/[,$]/g, ''))
-          const amount = Math.abs(numAmt)
           const rawDate = getCol(row, 'date', 'transaction date', 'posted date', 'posting date', 'trans date')
           const parsedDate = rawDate ? new Date(rawDate) : null
           const date = parsedDate && !isNaN(parsedDate.getTime())
             ? parsedDate.toISOString().split('T')[0]
             : new Date().toISOString().split('T')[0]
 
-          // Chase "Type" column: Sale / Return / Payment / Adjustment / Fee
-          const txTypeCol = getCol(row, 'type').toLowerCase().trim()
+          let amount: number
           let finalType: 'expense' | 'income' | 'transfer'
-          if (txTypeCol === 'sale' || txTypeCol === 'fee') {
-            finalType = 'expense'
-          } else if (txTypeCol === 'payment' || txTypeCol === 'adjustment') {
-            finalType = 'transfer'
-          } else if (txTypeCol === 'return') {
-            finalType = 'transfer'
-          } else if (isCard) {
-            // Card fallback: negative = expense (charge), positive = transfer (payment)
-            finalType = numAmt < 0 ? 'expense' : 'transfer'
+
+          if (isCitiFormat) {
+            // Citi: separate Debit (expense) / Credit (payment or refund) columns
+            const debitRaw = getCol(row, 'debit')
+            const creditRaw = getCol(row, 'credit')
+            const debit = debitRaw ? parseFloat(String(debitRaw).replace(/[,$]/g, '')) : 0
+            const credit = creditRaw ? parseFloat(String(creditRaw).replace(/[,$]/g, '')) : 0
+            if (debit > 0) {
+              amount = debit
+              finalType = isCard ? 'expense' : 'expense'
+            } else {
+              amount = credit
+              const isTransfer = transferKeywords.some(k => desc.toLowerCase().includes(k))
+              finalType = isCard ? 'transfer' : isTransfer ? 'transfer' : 'income'
+            }
           } else {
-            // Bank: positive = income (deposit), negative = expense (withdrawal)
-            const isTransfer = transferKeywords.some(k => desc.toLowerCase().includes(k))
-            finalType = isTransfer ? 'transfer' : numAmt > 0 ? 'income' : 'expense'
+            const rawAmt = getCol(row, 'amount', 'transaction amount')
+            const numAmt = parseFloat(String(rawAmt).replace(/[,$]/g, ''))
+            amount = Math.abs(numAmt)
+            // Chase "Type" column: Sale / Payment / Return / Fee / Adjustment
+            const txTypeCol = getCol(row, 'type').toLowerCase().trim()
+            if (txTypeCol === 'sale' || txTypeCol === 'fee') {
+              finalType = 'expense'
+            } else if (txTypeCol === 'payment' || txTypeCol === 'adjustment' || txTypeCol === 'return') {
+              finalType = 'transfer'
+            } else if (isCard) {
+              finalType = numAmt < 0 ? 'expense' : 'transfer'
+            } else {
+              const isTransfer = transferKeywords.some(k => desc.toLowerCase().includes(k))
+              finalType = isTransfer ? 'transfer' : numAmt > 0 ? 'income' : 'expense'
+            }
           }
 
           const { category_id, tax_type } = finalType === 'transfer'
