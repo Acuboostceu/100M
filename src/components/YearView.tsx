@@ -38,6 +38,7 @@ function UploadModal({
   const fileRef = useRef<HTMLInputElement>(null)
   const [rows, setRows] = useState<ParsedRow[]>([])
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [editingRule, setEditingRule] = useState<{ idx: number; keyword: string } | null>(null)
   const [savedRuleKws, setSavedRuleKws] = useState<Set<string>>(new Set(rules.map(r => r.keyword)))
 
@@ -76,7 +77,7 @@ function UploadModal({
       .select()
       .single()
 
-    if (stmtErr || !stmt) { setSaving(false); return }
+    if (stmtErr || !stmt) { setSaveError(stmtErr?.message ?? 'Failed to save statement'); setSaving(false); return }
 
     // Delete existing transactions for this statement (re-import)
     await sb.from('budget_transactions').delete().eq('statement_id', stmt.id)
@@ -206,19 +207,24 @@ function UploadModal({
 
         {/* Footer */}
         {rows.length > 0 && (
-          <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
-            <div className="flex gap-3 text-xs text-gray-500">
-              <span>{selectedCount} transactions</span>
-              <span className="text-amber-500">{rows.filter(r => r.selected && !r.category_id && r.type !== 'transfer').length} uncategorized</span>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => setRows([])} className="text-xs px-3 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">Re-upload</button>
-              <button
-                onClick={handleSave}
-                disabled={saving || selectedCount === 0}
-                className="text-xs px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50">
-                {saving ? 'Saving…' : `Save ${selectedCount} transactions`}
-              </button>
+          <div className="px-5 py-4 border-t border-gray-100 space-y-2">
+            {saveError && (
+              <p className="text-xs text-red-500 bg-red-50 px-3 py-2 rounded-lg">{saveError}</p>
+            )}
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex gap-3 text-xs text-gray-500">
+                <span>{selectedCount} transactions</span>
+                <span className="text-amber-500">{rows.filter(r => r.selected && !r.category_id && r.type !== 'transfer').length} uncategorized</span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => { setRows([]); setSaveError('') }} className="text-xs px-3 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">Re-upload</button>
+                <button
+                  onClick={handleSave}
+                  disabled={saving || selectedCount === 0}
+                  className="text-xs px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50">
+                  {saving ? 'Saving…' : `Save ${selectedCount} transactions`}
+                </button>
+              </div>
             </div>
           </div>
         )}
