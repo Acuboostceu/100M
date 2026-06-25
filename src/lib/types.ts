@@ -1,20 +1,34 @@
-export type AccountType = 'personal_card' | 'business_card' | 'joint_account' | 'office_account'
-export type Entity = 'glow' | 'acuboost' | 'personal'
-export type TxType = 'expense' | 'income' | 'transfer'
-export type TaxType = 'personal' | 'business' | 'none'
+export type Entity      = 'glow' | 'acuboost' | 'personal'
+export type TxType      = 'expense' | 'income' | 'transfer'
+export type TaxType     = 'personal' | 'business' | 'none'
+export type Institution = 'boa' | 'chase' | 'citi' | 'amex' | 'capital_one' | 'other'
+export type Owner       = 'jiyeon' | 'husband' | 'joint'
+export type StmtStatus  = 'pending' | 'confirmed'
 
 export interface Account {
   id: string
+  user_id: string
   name: string
-  type: AccountType
   entity: Entity
-  owner?: string | null
+  owner: Owner
+  institution: Institution
+  type: 'checking' | 'savings' | 'credit_card'
   balance: number
   credit_limit?: number
-  is_debt: boolean
-  interest_rate?: number
-  minimum_payment?: number
   created_at: string
+}
+
+export interface Statement {
+  id: string
+  account_id: string
+  period: string        // 'YYYY-MM'
+  filename?: string
+  status: StmtStatus
+  tx_count: number
+  total_in: number
+  total_out: number
+  created_at: string
+  account?: Account
 }
 
 export interface Category {
@@ -29,7 +43,8 @@ export interface Category {
 export interface Transaction {
   id: string
   account_id: string
-  category_id: string
+  statement_id?: string
+  category_id?: string
   amount: number
   type: TxType
   description: string
@@ -41,21 +56,7 @@ export interface Transaction {
   created_at: string
   account?: Account
   category?: Category
-}
-
-export interface DebtPayment {
-  id: string
-  account_id: string
-  amount: number
-  payment_date: string
-  notes?: string
-}
-
-export interface MonthlyBudget {
-  id: string
-  category_id: string
-  month: string
-  amount: number
+  statement?: Statement
 }
 
 export interface ImportRule {

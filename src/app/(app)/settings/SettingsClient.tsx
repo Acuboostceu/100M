@@ -1,23 +1,23 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Account, AccountType, Category, Entity, ImportRule } from '@/lib/types'
+import { Account, Category, Entity, Institution, Owner, ImportRule } from '@/lib/types'
 import { filterCategories } from '@/lib/entityUtils'
 import { useRouter } from 'next/navigation'
 
-const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
-  { value: 'joint_account',  label: 'Joint Account' },
-  { value: 'personal_card',  label: 'Personal Card' },
-  { value: 'business_card',  label: 'Business Card' },
-  { value: 'office_account', label: 'Office Account' },
+const ACCOUNT_TYPES: { value: 'checking' | 'credit_card'; label: string; icon: string }[] = [
+  { value: 'checking',    label: 'Checking / Savings', icon: '🏦' },
+  { value: 'credit_card', label: 'Credit Card',        icon: '💳' },
 ]
 
-const TYPE_ICONS: Record<AccountType, string> = {
-  joint_account:  '🏦',
-  personal_card:  '💳',
-  business_card:  '🏢',
-  office_account: '🗂️',
-}
+const INSTITUTIONS: { value: Institution; label: string }[] = [
+  { value: 'boa',          label: 'Bank of America' },
+  { value: 'chase',        label: 'Chase' },
+  { value: 'citi',         label: 'Citi' },
+  { value: 'amex',         label: 'American Express' },
+  { value: 'capital_one',  label: 'Capital One' },
+  { value: 'other',        label: 'Other' },
+]
 
 const ENTITIES: { value: Entity; label: string; color: string }[] = [
   { value: 'glow',     label: 'Glow',     color: 'bg-sky-100 text-sky-700' },
@@ -25,22 +25,21 @@ const ENTITIES: { value: Entity; label: string; color: string }[] = [
   { value: 'personal', label: 'Personal', color: 'bg-emerald-100 text-emerald-700' },
 ]
 
-const OWNERS = [
-  { value: '',       label: '공동 / 미지정' },
-  { value: 'jiyeon', label: '지연' },
-  { value: 'junwoo', label: '준우' },
+const OWNERS: { value: Owner | ''; label: string }[] = [
+  { value: '',         label: 'Joint / Unassigned' },
+  { value: 'jiyeon',  label: 'Jiyeon' },
+  { value: 'husband', label: 'Husband' },
 ]
+
+type AccountFormType = 'checking' | 'credit_card'
 
 const EMPTY_FORM = {
   name: '',
-  type: 'joint_account' as AccountType,
-  entity: 'glow' as Entity,
-  owner: '',
-  balance: '',
-  is_debt: false,
+  type: 'checking' as AccountFormType,
+  entity: 'personal' as Entity,
+  owner: '' as Owner | '',
+  institution: 'chase' as Institution,
   credit_limit: '',
-  interest_rate: '',
-  minimum_payment: '',
 }
 
 function fmt(n: number) {
@@ -62,7 +61,7 @@ export default function SettingsClient({
   const [categories, setCategories] = useState<Category[]>(initialCategories)
   useEffect(() => {
     supabase.from('budget_categories').select('*').order('name').then(({ data }) => {
-      if (data && data.length > 0) setCategories(data)
+      if (data?.length) setCategories(data)
     })
   }, [])
 
@@ -72,85 +71,64 @@ export default function SettingsClient({
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [editingEntityId, setEditingEntityId] = useState<string | null>(null)
-  const [editingAccountId, setEditingAccountId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState(EMPTY_FORM)
   const [editSaving, setEditSaving] = useState(false)
   const [error, setError] = useState('')
-  const isCard = form.type === 'personal_card' || form.type === 'business_card'
-  const isEditCard = editForm.type === 'personal_card' || editForm.type === 'business_card'
 
   function startEdit(a: Account) {
-    setEditingAccountId(a.id)
-    setEditingEntityId(null)
+    setEditingId(a.id)
     setEditForm({
       name: a.name,
-      type: a.type,
+      type: a.type as AccountFormType,
       entity: a.entity,
-      owner: (a as any).owner ?? '',
-      balance: String(a.balance),
-      is_debt: a.is_debt,
-      credit_limit: a.credit_limit ? String(a.credit_limit) : '',
-      interest_rate: a.interest_rate ? String(a.interest_rate) : '',
-      minimum_payment: a.minimum_payment ? String(a.minimum_payment) : '',
+      owner: (a.owner ?? '') as Owner | '',
+      institution: a.institution,
+      credit_limit: (a.credit_limit ? String(a.credit_limit) : ''),
     })
   }
 
-  async function handleUpdateAccount() {
-    if (!editingAccountId || !editForm.name.trim()) return
-    setEditSaving(true)
-    const payload = {
-      name: editForm.name.trim(),
-      type: editForm.type,
-      entity: editForm.entity,
-      owner: editForm.owner || null,
-      balance: parseFloat(editForm.balance || '0'),
-      is_debt: editForm.is_debt,
-      credit_limit:    (isEditCard || editForm.is_debt) && editForm.credit_limit    ? parseFloat(editForm.credit_limit)    : null,
-      interest_rate:   editForm.is_debt && editForm.interest_rate                   ? parseFloat(editForm.interest_rate)   : null,
-      minimum_payment: editForm.is_debt && editForm.minimum_payment                 ? parseFloat(editForm.minimum_payment) : null,
-    }
-    const { data, error: err } = await supabase.from('budget_accounts').update(payload).eq('id', editingAccountId).select().single()
-    if (!err && data) {
-      setAccounts(a => a.map(x => x.id === editingAccountId ? data : x))
-      setEditingAccountId(null)
-      router.refresh()
-    }
-    setEditSaving(false)
-  }
-
-  async function handleAddAccount() {
+  async function handleAdd() {
     if (!form.name.trim()) return setError('Account name is required')
     setSaving(true); setError('')
     const { data: { user } } = await supabase.auth.getUser()
-    const payload = {
+    const { data, error: err } = await supabase.from('budget_accounts').insert({
       user_id: user!.id,
       name: form.name.trim(),
       type: form.type,
       entity: form.entity,
       owner: form.owner || null,
-      balance: parseFloat(form.balance || '0'),
-      is_debt: form.is_debt,
-      credit_limit:    (isCard || form.is_debt) && form.credit_limit    ? parseFloat(form.credit_limit)    : null,
-      interest_rate:   form.is_debt && form.interest_rate               ? parseFloat(form.interest_rate)   : null,
-      minimum_payment: form.is_debt && form.minimum_payment             ? parseFloat(form.minimum_payment) : null,
-    }
-    const { data, error: err } = await supabase.from('budget_accounts').insert(payload).select().single()
+      institution: form.institution,
+      credit_limit: form.type === 'credit_card' && form.credit_limit ? parseFloat(form.credit_limit) : null,
+      balance: 0,
+    }).select().single()
     if (err) { setError(err.message); setSaving(false); return }
     setAccounts(a => [...a, data])
     setForm(EMPTY_FORM); setShowForm(false); setSaving(false)
     router.refresh()
   }
 
-  async function handleUpdateEntity(id: string, entity: Entity) {
-    await supabase.from('budget_accounts').update({ entity }).eq('id', id)
-    setAccounts(a => a.map(x => x.id === id ? { ...x, entity } : x))
-    setEditingEntityId(null)
-    router.refresh()
+  async function handleUpdate() {
+    if (!editingId || !editForm.name.trim()) return
+    setEditSaving(true)
+    const { data, error: err } = await supabase.from('budget_accounts').update({
+      name: editForm.name.trim(),
+      type: editForm.type,
+      entity: editForm.entity,
+      owner: editForm.owner || null,
+      institution: editForm.institution,
+      credit_limit: editForm.type === 'credit_card' && editForm.credit_limit ? parseFloat(editForm.credit_limit) : null,
+    }).eq('id', editingId).select().single()
+    if (!err && data) {
+      setAccounts(a => a.map(x => x.id === editingId ? data : x))
+      setEditingId(null)
+      router.refresh()
+    }
+    setEditSaving(false)
   }
 
-  async function handleDeleteAccount(id: string) {
-    if (!confirm('Delete this account? All transactions linked to it will also be removed.')) return
+  async function handleDelete(id: string) {
+    if (!confirm('Delete this account? All linked statements and transactions will also be removed.')) return
     setDeletingId(id)
     await supabase.from('budget_accounts').delete().eq('id', id)
     setAccounts(a => a.filter(x => x.id !== id))
@@ -174,7 +152,7 @@ export default function SettingsClient({
       .select('*, category:budget_categories(*)')
       .single()
     if (!err && data) {
-      setRules(r => [...r.filter((x: any) => !(x.keyword === data.keyword && x.entity === data.entity)), data])
+      setRules(r => [...r.filter(x => !(x.keyword === data.keyword && x.entity === data.entity)), data as any])
       setRuleKeyword(''); setRuleCategoryId('')
     }
     setSavingRule(false)
@@ -186,6 +164,12 @@ export default function SettingsClient({
     setRules(r => r.filter(x => x.id !== id))
     setDeletingRuleId(null)
   }
+
+  // Group accounts by entity
+  const grouped = ENTITIES.map(e => ({
+    ...e,
+    accs: accounts.filter(a => a.entity === e.value),
+  }))
 
   return (
     <div className="space-y-6">
@@ -200,121 +184,103 @@ export default function SettingsClient({
           </button>
         </div>
 
-        {accounts.length === 0 && !showForm && (
-          <p className="text-sm text-gray-400 text-center py-6">No accounts yet.</p>
-        )}
+        <div className="space-y-4">
+          {grouped.map(g => (
+            <div key={g.value}>
+              {g.accs.length > 0 && (
+                <>
+                  <p className={`text-xs font-semibold mb-2 px-1 ${g.color.split(' ')[1]}`}>{g.label}</p>
+                  {g.accs.map(a => (
+                    <div key={a.id} className="border-b border-gray-50 last:border-0">
+                      <div className="flex items-center justify-between py-2">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xl">{a.type === 'credit_card' ? '💳' : '🏦'}</span>
+                          <div>
+                            <p className="text-sm font-medium">{a.name}</p>
+                            <p className="text-xs text-gray-400">
+                              {INSTITUTIONS.find(i => i.value === a.institution)?.label ?? a.institution}
+                              {a.type === 'credit_card' && a.credit_limit ? ` · limit ${fmt(Number(a.credit_limit))}` : ''}
+                              {a.owner ? ` · ${a.owner === 'jiyeon' ? 'Jiyeon' : 'Husband'}` : ''}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => editingId === a.id ? setEditingId(null) : startEdit(a)}
+                            className={`text-xs px-2 py-1 rounded transition-colors ${editingId === a.id ? 'text-brand-600' : 'text-gray-400 hover:text-gray-600'}`}>
+                            ✏️
+                          </button>
+                          <button onClick={() => handleDelete(a.id)} disabled={deletingId === a.id}
+                            className="text-gray-300 hover:text-red-400 transition-colors text-sm px-1">
+                            {deletingId === a.id ? '…' : '✕'}
+                          </button>
+                        </div>
+                      </div>
 
-        <div className="space-y-2">
-          {accounts.map(a => (
-            <div key={a.id} className="border-b border-gray-50 last:border-0">
-              {/* Account row */}
-              <div className="flex items-center justify-between py-2">
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">{TYPE_ICONS[a.type]}</span>
-                  <div>
-                    <p className="text-sm font-medium">{a.name}</p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        ENTITIES.find(e => e.value === a.entity)?.color ?? 'bg-gray-100 text-gray-500'
-                      }`}>
-                        {ENTITIES.find(e => e.value === a.entity)?.label ?? 'Unassigned'}
-                      </span>
-                      <span className="text-xs text-gray-400">
-                        {ACCOUNT_TYPES.find(t => t.value === a.type)?.label}
-                        {a.is_debt && a.interest_rate ? ` · ${a.interest_rate}% APR` : ''}
-                      </span>
+                      {/* Inline edit */}
+                      {editingId === a.id && (
+                        <div className="bg-gray-50 rounded-xl p-4 mb-2 space-y-3">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                              <label className="label">Account name</label>
+                              <input className="input" value={editForm.name}
+                                onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
+                            </div>
+                            <div>
+                              <label className="label">Institution</label>
+                              <select className="input" value={editForm.institution}
+                                onChange={e => setEditForm(f => ({ ...f, institution: e.target.value as Institution }))}>
+                                {INSTITUTIONS.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="label">Type</label>
+                              <select className="input" value={editForm.type}
+                                onChange={e => setEditForm(f => ({ ...f, type: e.target.value as AccountFormType }))}>
+                                {ACCOUNT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="label">Entity</label>
+                              <select className="input" value={editForm.entity}
+                                onChange={e => setEditForm(f => ({ ...f, entity: e.target.value as Entity }))}>
+                                {ENTITIES.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
+                              </select>
+                            </div>
+                            {editForm.entity === 'personal' && (
+                              <div>
+                                <label className="label">Owner</label>
+                                <select className="input" value={editForm.owner}
+                                  onChange={e => setEditForm(f => ({ ...f, owner: e.target.value as Owner | '' }))}>
+                                  {OWNERS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                </select>
+                              </div>
+                            )}
+                            {editForm.type === 'credit_card' && (
+                              <div>
+                                <label className="label">Credit limit</label>
+                                <input className="input" type="number" placeholder="0.00"
+                                  value={editForm.credit_limit}
+                                  onChange={e => setEditForm(f => ({ ...f, credit_limit: e.target.value }))} />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={handleUpdate} disabled={editSaving} className="btn-primary text-sm">
+                              {editSaving ? 'Saving…' : 'Save'}
+                            </button>
+                            <button onClick={() => setEditingId(null)} className="btn-secondary text-sm">Cancel</button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="text-right">
-                    <p className={`text-sm font-semibold ${a.is_debt ? 'text-red-500' : 'text-gray-800'}`}>
-                      {fmt(Number(a.balance))}
-                    </p>
-                    {a.credit_limit && (
-                      <p className="text-xs text-gray-400">limit {fmt(Number(a.credit_limit))}</p>
-                    )}
-                  </div>
-                  <button onClick={() => editingAccountId === a.id ? setEditingAccountId(null) : startEdit(a)}
-                    className={`text-xs px-2 py-1 rounded transition-colors ${editingAccountId === a.id ? 'text-brand-600' : 'text-gray-400 hover:text-gray-600'}`}>
-                    ✏️
-                  </button>
-                  <button onClick={() => handleDeleteAccount(a.id)} disabled={deletingId === a.id}
-                    className="text-gray-300 hover:text-red-400 transition-colors text-sm px-1">
-                    {deletingId === a.id ? '…' : '✕'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Inline edit form */}
-              {editingAccountId === a.id && (
-                <div className="bg-gray-50 rounded-xl p-4 mb-2 space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label className="label">Account name</label>
-                      <input className="input" value={editForm.name}
-                        onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
-                    </div>
-                    <div>
-                      <label className="label">Type</label>
-                      <select className="input" value={editForm.type}
-                        onChange={e => setEditForm(f => ({ ...f, type: e.target.value as AccountType }))}>
-                        {ACCOUNT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="label">Entity</label>
-                      <select className="input" value={editForm.entity}
-                        onChange={e => setEditForm(f => ({ ...f, entity: e.target.value as Entity }))}>
-                        {ENTITIES.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="label">Balance</label>
-                      <input className="input" type="number"
-                        value={editForm.balance}
-                        onChange={e => setEditForm(f => ({ ...f, balance: e.target.value }))} />
-                    </div>
-                    {(isEditCard || editForm.is_debt) && (
-                      <div>
-                        <label className="label">Credit limit</label>
-                        <input className="input" type="number"
-                          value={editForm.credit_limit}
-                          onChange={e => setEditForm(f => ({ ...f, credit_limit: e.target.value }))} />
-                      </div>
-                    )}
-                  </div>
-                  <label className="flex items-center gap-2 cursor-pointer w-fit">
-                    <input type="checkbox" checked={editForm.is_debt}
-                      onChange={e => setEditForm(f => ({ ...f, is_debt: e.target.checked }))} className="w-4 h-4 rounded" />
-                    <span className="text-sm">Debt account</span>
-                  </label>
-                  {editForm.is_debt && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="label">Interest rate (%)</label>
-                        <input className="input" type="number"
-                          value={editForm.interest_rate}
-                          onChange={e => setEditForm(f => ({ ...f, interest_rate: e.target.value }))} />
-                      </div>
-                      <div>
-                        <label className="label">Minimum payment</label>
-                        <input className="input" type="number"
-                          value={editForm.minimum_payment}
-                          onChange={e => setEditForm(f => ({ ...f, minimum_payment: e.target.value }))} />
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex gap-2">
-                    <button onClick={handleUpdateAccount} disabled={editSaving} className="btn-primary text-sm">
-                      {editSaving ? 'Saving…' : 'Save'}
-                    </button>
-                    <button onClick={() => setEditingAccountId(null)} className="btn-secondary text-sm">Cancel</button>
-                  </div>
-                </div>
+                  ))}
+                </>
               )}
             </div>
           ))}
+          {accounts.length === 0 && !showForm && (
+            <p className="text-sm text-gray-400 text-center py-6">No accounts yet. Add one above.</p>
+          )}
         </div>
       </div>
 
@@ -325,13 +291,20 @@ export default function SettingsClient({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="label">Account name</label>
-              <input className="input" placeholder="e.g. Chase Checking"
+              <input className="input" placeholder="e.g. Chase Business Checking"
                 value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label">Institution</label>
+              <select className="input" value={form.institution}
+                onChange={e => setForm(f => ({ ...f, institution: e.target.value as Institution }))}>
+                {INSTITUTIONS.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
+              </select>
             </div>
             <div>
               <label className="label">Type</label>
               <select className="input" value={form.type}
-                onChange={e => setForm(f => ({ ...f, type: e.target.value as AccountType }))}>
+                onChange={e => setForm(f => ({ ...f, type: e.target.value as AccountFormType }))}>
                 {ACCOUNT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
@@ -346,17 +319,12 @@ export default function SettingsClient({
               <div>
                 <label className="label">Owner</label>
                 <select className="input" value={form.owner}
-                  onChange={e => setForm(f => ({ ...f, owner: e.target.value }))}>
+                  onChange={e => setForm(f => ({ ...f, owner: e.target.value as Owner | '' }))}>
                   {OWNERS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
             )}
-            <div>
-              <label className="label">Current balance</label>
-              <input className="input" type="number" placeholder="0.00"
-                value={form.balance} onChange={e => setForm(f => ({ ...f, balance: e.target.value }))} />
-            </div>
-            {(isCard || form.is_debt) && (
+            {form.type === 'credit_card' && (
               <div>
                 <label className="label">Credit limit</label>
                 <input className="input" type="number" placeholder="0.00"
@@ -364,28 +332,9 @@ export default function SettingsClient({
               </div>
             )}
           </div>
-          <label className="flex items-center gap-2 cursor-pointer w-fit">
-            <input type="checkbox" checked={form.is_debt}
-              onChange={e => setForm(f => ({ ...f, is_debt: e.target.checked }))} className="w-4 h-4 rounded" />
-            <span className="text-sm">This is a debt account</span>
-          </label>
-          {form.is_debt && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label">Interest rate (%)</label>
-                <input className="input" type="number" placeholder="e.g. 24.99"
-                  value={form.interest_rate} onChange={e => setForm(f => ({ ...f, interest_rate: e.target.value }))} />
-              </div>
-              <div>
-                <label className="label">Minimum payment</label>
-                <input className="input" type="number" placeholder="0.00"
-                  value={form.minimum_payment} onChange={e => setForm(f => ({ ...f, minimum_payment: e.target.value }))} />
-              </div>
-            </div>
-          )}
           {error && <p className="text-xs text-red-500">{error}</p>}
           <div className="flex gap-2 pt-1">
-            <button onClick={handleAddAccount} disabled={saving} className="btn-primary">
+            <button onClick={handleAdd} disabled={saving} className="btn-primary">
               {saving ? 'Saving…' : 'Save account'}
             </button>
             <button onClick={() => { setShowForm(false); setForm(EMPTY_FORM); setError('') }} className="btn-secondary">
@@ -398,11 +347,10 @@ export default function SettingsClient({
       {/* ── Import Rules ── */}
       <div className="card">
         <div className="mb-4">
-          <h2 className="text-sm font-semibold">Import Rules</h2>
-          <p className="text-xs text-gray-400 mt-0.5">키워드가 거래 내역에 포함되면 자동으로 카테고리를 지정합니다.</p>
+          <h2 className="text-sm font-semibold">Auto-Categorization Rules</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Keyword found in transaction description → auto-assign category on import.</p>
         </div>
 
-        {/* Add rule form */}
         <div className="flex flex-wrap gap-2 mb-5">
           <select className="input w-32 shrink-0" value={ruleEntity}
             onChange={e => { setRuleEntity(e.target.value as Entity); setRuleCategoryId('') }}>
@@ -410,14 +358,14 @@ export default function SettingsClient({
           </select>
           <input
             className="input flex-1 min-w-[140px]"
-            placeholder='키워드 (예: square, louie properties)'
+            placeholder='keyword (e.g. square, costco)'
             value={ruleKeyword}
             onChange={e => setRuleKeyword(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleAddRule()}
           />
           <select className="input w-48" value={ruleCategoryId}
             onChange={e => setRuleCategoryId(e.target.value)}>
-            <option value="">카테고리 선택</option>
+            <option value="">Select category</option>
             {filterCategories(categories, ruleEntity).map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
           </select>
           <button onClick={handleAddRule} disabled={savingRule || !ruleKeyword.trim() || !ruleCategoryId}
@@ -427,25 +375,23 @@ export default function SettingsClient({
         </div>
 
         {rules.length === 0 && (
-          <p className="text-sm text-gray-400 text-center py-4">규칙이 없습니다. 위에서 추가해 보세요.</p>
+          <p className="text-sm text-gray-400 text-center py-4">No rules yet. Rules save automatically when you tag a transaction on import.</p>
         )}
 
         {ENTITIES.map(ent => {
-          const entRules = rules.filter((r: any) => r.entity === ent.value)
+          const entRules = rules.filter(r => r.entity === ent.value)
           if (entRules.length === 0) return null
           return (
             <div key={ent.value} className="mb-4">
-              <p className={`text-xs font-semibold mb-1.5 px-1 ${ent.color.replace('bg-', 'text-').replace('-100', '-700').split(' ')[1]}`}>
-                {ent.label}
-              </p>
+              <p className={`text-xs font-semibold mb-1.5 px-1 ${ent.color.split(' ')[1]}`}>{ent.label}</p>
               <div className="space-y-0.5">
-                {entRules.map((r: any) => (
+                {entRules.map(r => (
                   <div key={r.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                     <div className="flex items-center gap-3">
                       <code className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600">{r.keyword}</code>
                       <span className="text-xs text-gray-400">→</span>
                       <span className="text-xs font-medium">
-                        {r.category?.icon} {r.category?.name}
+                        {(r as any).category?.icon} {(r as any).category?.name}
                       </span>
                     </div>
                     <button onClick={() => handleDeleteRule(r.id)} disabled={deletingRuleId === r.id}
